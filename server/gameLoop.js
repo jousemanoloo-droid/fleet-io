@@ -1,0 +1,239 @@
+// ============================================================================
+// FLEET.IO - Game Loop Autoritativo (Servidor)
+// Bucle a 30 TPS que procesa movimientos, colisiones y sincroniza estado
+// ============================================================================
+
+const TICK_RATE = 30;
+const TICK_INTERVAL = 1000 / TICK_RATE;
+const { updateCombat, resolveObstacles } = require('./combat');
+
+class GameLoop {
+  constructor(gameState, io) {
+    this.state = gameState;
+    // Migración compatible con fixtures antiguos; cada GameRoom usa Maps.
+    for (const key of ['players', 'scraps', 'obstacles', 'projectiles']) {
+      if (!(gameState[key] instanceof Map)) gameState[key] = new Map(Object.entries(gameState[key] || {}));
+    }
+    this.io = io;
+    this.running = false;
+    this.tickCount = 0;
+    this._interval = null;
+    this._lastScrapSpawn = 0;
+  }
+
+  start() {
+    if (this.running) return;
+    this.running = true;
+    this._interval = setInterval(() => this._tick(), TICK_INTERVAL);
+  }
+
+  stop() {
+    this.running = false;
+    if (this._interval) {
+      clearInterval(this._interval);
+      this._interval = null;
+    }
+  }
+
+  _tick() {
+    this.tickCount++;
+
+    this._updatePlayers();
+    updateCombat(this.state, this.tickCount);
+    this._processDeaths();
+    this._updateScrap();
+    this._checkScrapCollection();
+    this._maybeSpawnScrap();
+
+    if (this.tickCount % 2 === 0) {
+      this._broadcastState();
+    }
+  }
+
+  _updatePlayers() {
+    this._processDeaths();
+    for (const p of this.state.players.values()) {
+      if (p.alive) {
+        if (p.isBot) p.think(this.state, this.tickCount);
+        p.update();
+        resolveObstacles(p, this.state.obstacles);
+      }
+    }
+  }
+
+  _processDeaths() {
+    const now = Date.now();
+    for (const p of this.state.players.values()) {
+      if (p.hp > 0 && p.alive) continue;
+      p.die();
+      if (p._notifiedDeathId !== p.deathId) {
+        p._notifiedDeathId = p.deathId;
+        if (p.isBot) {
+          p.respawnAt = now + 3000;
+          // Drop acotado para no inflar la red ni duplicar material por cada tick.
+          const count = Math.min(20, p.deathState.scrap, 250 - this.state.scraps.size);
+          for (let i = 0; i < count; i++) {
+            const angle = i * 2.39996;
+            const value = Math.floor(p.deathState.scrap / count) +
+              (i < p.deathState.scrap % count ? 1 : 0);
+            this.state.spawnScrap(p.x + Math.cos(angle) * (20 + i * 3),
+              p.y + Math.sin(angle) * (20 + i * 3), value);
+          }
+        } else {
+          this.io.to(p.id).emit('playerDied', { ...p.toNetwork(), roomId: this.state.roomId });
+        }
+      }
+      if (p.isBot && now >= p.respawnAt) {
+        p.respawn(false, this.state.players, this.state.world, this.state.obstacles);
+        p.nextDecisionTick = this.tickCount;
+        p.nextFireTick = this.tickCount;
+      }
+    }
+  }
+
+  _updateScrap() {
+    for (const s of this.state.scraps.values()) s.update();
+  }
+
+  _checkScrapCollection() {
+    for (const [pid, player] of this.state.players) {
+      if (!player || !player.alive || player.hp <= 0) continue;
+
+      // Si el jugador está eligiendo una mutación, no recoge chatarra
+      if (player.levelUpPending) continue;
+
+      const collectRadius = player.collectRadius;
+
+      for (const [sid, scrap] of this.state.scraps) {
+
+        const dx = scrap.x - player.x;
+        const dy = scrap.y - player.y;
+        const distSq = dx * dx + dy * dy;
+
+        if (distSq <= collectRadius * collectRadius) {
+          const gainedDrone = player.collectScrap(scrap);
+          this.state.scraps.delete(sid);
+
+          if (gainedDrone) {
+            for (let i = 0; i < gainedDrone; i++) {
+              const droneId = `drone_${this.state.uidCounter++}`;
+              player.addDrone(droneId);
+            }
+          }
+
+          if (!player.isBot) this.io.to(pid).emit('scrapCollected', {
+            roomId: this.state.roomId,
+            scrapId: sid,
+            value: scrap.value,
+            score: player.score,
+            scrapTotal: player.scrapCollected,
+            droneGained: gainedDrone,
+            droneCount: player.drones.length,
+            hp: Math.round(player.hp),
+            maxHp: player.maxHp,
+            level: player.level,
+          });
+
+          // Si la recogida provocó una subida de nivel, mostrar opciones de mutación
+          if (player.levelUpPending) {
+            const options = generateRandomUpgrades(3, player.mutations);
+            if (player.isBot) player.chooseUpgrade(options);
+            else {
+              player.upgradeOptions = options.map(option => option.type);
+              this.io.to(pid).emit('showLevelUpOptions', {
+              roomId: this.state.roomId,
+              level: player.level,
+              options,
+            });
+            }
+            // Solo se procesa una subida por tick para evitar spamm
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  _maybeSpawnScrap() {
+    this._lastScrapSpawn++;
+    if (this._lastScrapSpawn < 10) return;
+    this._lastScrapSpawn = 0;
+
+    const maxScraps = 250;
+    const currentCount = this.state.scraps.size;
+    if (currentCount >= maxScraps) return;
+
+    const toSpawn = Math.min(8, maxScraps - currentCount);
+    for (let i = 0; i < toSpawn; i++) {
+      const value = Math.random() < 0.15 ? 3 : Math.random() < 0.4 ? 2 : 1;
+      this.state.spawnScrap(undefined, undefined, value);
+    }
+  }
+
+  _broadcastState() {
+    const playersPayload = Array.from(this.state.players.values(), p => p.toNetwork());
+    const scrapsPayload = Array.from(this.state.scraps.values(), s => s.toNetwork());
+
+    const snapshot = {
+      t: this.tickCount,
+      ts: Date.now(),
+      roomId: this.state.roomId,
+      p: playersPayload,
+      s: scrapsPayload,
+      b: Array.from(this.state.projectiles.values(), b => ({ id: b.id, x: b.x, y: b.y, c: b.color })),
+      o: Array.from(this.state.obstacles.values()),
+    };
+
+    this.io.to(this.state.roomId).volatile.emit('gameState', snapshot);
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Catálogo de mutaciones y generador aleatorio
+// ----------------------------------------------------------------------------
+const UPGRADE_CATALOG = [
+  {
+    type: 'plasma_thrusters',
+    icon: '⚡',
+    name: 'Propulsores de Plasma',
+    desc: 'Velocidad máxima +20%',
+    rarity: 'comun',
+  },
+  {
+    type: 'quantum_magnet',
+    icon: '🧲',
+    name: 'Imán Cuántico',
+    desc: 'Radio de absorción de chatarra +50%',
+    rarity: 'comun',
+  },
+  {
+    type: 'nano_armor',
+    icon: '🛡️',
+    name: 'Blindaje Nanotecnológico',
+    desc: '+25 HP máximos y curación instantánea del 50%',
+    rarity: 'raro',
+  },
+  {
+    type: 'heavy_swarm',
+    icon: '🛸',
+    name: 'Enjambre Pesado',
+    desc: 'Añade instantáneamente +2 drones escolta',
+    rarity: 'raro',
+  },
+];
+
+// Devuelve `count` opciones de mutación únicas (sin repetir tipo).
+function generateRandomUpgrades(count, ownedMutations = []) {
+  const pool = UPGRADE_CATALOG.filter((u) => !ownedMutations.includes(u.type));
+  const available = pool.length >= count ? pool : UPGRADE_CATALOG.slice();
+  const shuffled = available.slice().sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count).map((u) => ({
+    type: u.type,
+    icon: u.icon,
+    name: u.name,
+    desc: u.desc,
+    rarity: u.rarity,
+  }));
+}
+
+module.exports = { GameLoop, TICK_RATE, TICK_INTERVAL, generateRandomUpgrades, UPGRADE_CATALOG };

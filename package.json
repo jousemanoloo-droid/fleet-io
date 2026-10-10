@@ -1,0 +1,25 @@
+{
+  "name": "fleet-io",
+  "version": "1.0.0",
+  "description": "FLEET.IO - Juego .io multijugador masivo de naves nodrizas espaciales",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "start:env": "node --env-file=.env server/server.js",
+    "dev": "node --watch server/server.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "keywords": [
+    "io-game",
+    "multiplayer",
+    "phaser",
+    "socket.io",
+    "spaceship"
+  ],
+  "author": "FLEET.IO Team",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}
