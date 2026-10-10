@@ -18,11 +18,17 @@
 fleet-io/
 ├── client/
 │   ├── index.html      # Punto de entrada HTML + HUD + Overlay
-│   └── game.js         # Lógica Phaser: input, render, interpolación
+│   ├── game.js         # Lógica Phaser: input, render, interpolación
+│   ├── config.js       # URL pública del backend
+│   └── monetization.js # Adaptador de anuncios recompensados
 ├── server/
 │   ├── server.js       # Express + Socket.io (entrypoint)
 │   ├── gameLoop.js     # Bucle autoritativo 30 TPS
-│   └── entities.js     # Clases: Player, Drone, Scrap, WORLD
+│   ├── entities.js     # Clases: Player, Drone, Scrap, WORLD
+│   ├── roomManager.js  # Matchmaking, códigos y ciclo de vida
+│   ├── gameRoom.js     # Mundo aislado y colecciones Map
+│   ├── bot.js          # FSM y steering de bots
+│   └── combat.js       # Disparos, colisiones y obstáculos
 ├── package.json
 └── README.md
 ```
@@ -111,13 +117,24 @@ Abre varias pestañas para probar el multijugador localmente.
 
 ## Anuncios recompensados y resurrección
 
-`client/monetization.js` expone `window.AdManager`. Por defecto muestra un anuncio
-simulado de tres segundos, cancelable, sin cargar SDKs ni generar ingresos.
+`client/index.html` carga el SDK v3 oficial de CrazyGames y
+`client/monetization.js` expone `window.AdManager`. El arranque espera `SDK.init()`:
+en el entorno `crazygames` usa anuncios reales; en localhost, fuera del portal o
+sin SDK activa una simulación cancelable de tres segundos. Un fallo de
+inicialización identificado dentro del portal no concede recompensas simuladas.
 `showRewardedAd(onSuccess, onFailure)` recompensa únicamente una finalización;
-`showInterstitialAd()` devuelve una promesa booleana y no concede recompensas.
+`showInterstitialAd(callback)` solicita un anuncio `midgame`, devuelve una promesa
+booleana y llama a `callback(completed, error)` sin conceder recompensas.
 No se muestran interstitials automáticamente al morir.
 
-Para sustituir la simulación, usar `AdManager.setAdapter(adapter)` con los métodos
+El adaptador nativo solicita `rewarded` y recompensa solo desde `adFinished`.
+`adStarted` pausa la escena y silencia su audio; finalización o error restauran
+el estado anterior. `gameplayStart` y `gameplayStop` reflejan entrada efectiva,
+muerte, resurrección confirmada, menú, desconexión y selección de mutaciones.
+El canvas usa Phaser RESIZE y ResizeObserver para adaptarse al iframe sin estirar
+las naves. No hay controles propios de pantalla completa.
+
+Para usar otro proveedor, usar `AdManager.setAdapter(adapter)` con los métodos
 `showRewardedAd()` y `showInterstitialAd()`. Ambos deben devolver `Promise<boolean>`;
 el wrapper del SDK resuelve `true` al completar y `false` al cancelar o no disponer
 de anuncios. Los anuncios display de AdSense no sirven por sí solos como rewarded ads.
@@ -132,10 +149,63 @@ posición separada de los enemigos. `takeDamage(amount)` respeta tres segundos d
 protección tras resurgir. El cliente detiene el envío de movimientos durante la
 muerte y el anuncio, y espera el estado autoritativo para cerrar el modal.
 
-Esta copia no contiene un sistema de colisiones de combate. El flujo se activa al
-llamar a `player.takeDamage(amount)` desde el combate o al detectar `hp <= 0` en el
-bucle; no hay resurrección automática. Las pruebas cubren las muertes, anuncios,
-resurrecciones y los eventos cliente/servidor: ejecutar `npm test`.
+Las escoltas disparan automáticamente a enemigos cercanos. Los proyectiles usan
+colisiones continuas contra naves, drones y asteroides. Una nave humana permanece
+muerta hasta elegir una resurrección; los bots resurgirán tras tres segundos.
+Las pruebas cubren las muertes, anuncios, resurrecciones y eventos cliente/servidor:
+ejecutar `npm test`.
+
+Para publicar en CrazyGames, empaquetar el contenido de `client/` con `index.html`
+en la raíz. Configurar `FLEET_CONFIG.backendUrl` en `config.js` con el backend HTTPS
+y permitir el origen real del juego mediante `CLIENT_ORIGINS` en el servidor.
+Validar rewarded, midgame y eventos de partida en la vista previa del portal antes
+de publicar: las pruebas automatizadas utilizan un SDK controlado, no inventario real.
+Referencias: [SDK v3](https://docs.crazygames.com/sdk/intro/),
+[anuncios](https://docs.crazygames.com/sdk/video-ads/) y
+[eventos del juego](https://docs.crazygames.com/sdk/game/).
+
+## Salas multijugador y bots
+
+El menú permite juego rápido público, crear/unirse a una sala privada y modo
+solitario. Las públicas admiten 30 humanos y el matchmaking elige la sala no llena
+con menos jugadores. Las privadas admiten 8 humanos y generan códigos aleatorios
+de seis caracteres mediante `node:crypto`, sin caracteres ambiguos. El código se
+muestra en el HUD con un botón de copia. El modo solitario admite un humano y siete
+bots identificados como `[BOT]`, con nombres en naranja.
+
+Cada `GameRoom` mantiene Maps independientes de jugadores, chatarra, asteroides y
+proyectiles, y su propio intervalo a 30 TPS. Los snapshots a 15 Hz incluyen `roomId`,
+`p` (humanos/bots), `s` (chatarra), `b` (proyectiles) y `o` (obstáculos). Solo se
+envían a sockets de esa sala. Al cambiar de sala, el cliente limpia entidades,
+interpolación, partículas y mutaciones pendientes, y descarta paquetes de otro mundo.
+
+| Evento de entrada | Datos | Respuesta por acknowledgement |
+|---|---|---|
+| `joinRoom` | `{ name, roomCode: 'public' }` o código privado | `{ ok, room, roomCode }` o `{ ok: false, error }` |
+| `createPrivateRoom` | `{ name }` | Código y sala creados |
+| `startSinglePlayer` | `{ name }` | Sala solitaria con 7 bots |
+| `leaveRoom` | `{}` | `{ ok: true }` |
+
+El servidor envía `welcome` al entrar, `roomInfo` cuando cambia la ocupación y
+`gameState` durante la partida. Un código erróneo o una sala llena no retiran al
+jugador de su sala actual. Los cambios están limitados a uno por segundo/socket;
+el gestor limita el total a 100 salas. Las públicas/privadas vacías paran sus ticks
+y caducan a los 60 segundos (comprobación cada 5 segundos). Las solitarias se
+destruyen inmediatamente al salir su humano. Al apagar el servidor se limpian
+todos los intervalos y Maps.
+
+Los bots comparten física, daño y economía con `Player`. Priorizan huida con vida
+baja o inferioridad de escoltas; después buscan material por distancia/valor y,
+con más de cinco drones, interceptan y flanquean enemigos. La huida se evalúa a
+30 Hz; las decisiones estratégicas se escalonan a 5 Hz para reducir coste. Eligen
+sus propias mutaciones y sueltan su chatarra al morir, agrupada en hasta 20 piezas.
+Respawnean tras tres segundos sin progresión y con protección temporal.
+
+La simulación limita a 250 piezas de chatarra y 240 proyectiles por sala. No usa
+esperas ni I/O síncrono durante los ticks. Los intervalos independientes comparten
+el hilo de Node.js: no aíslan CPU. Dimensiona la cantidad de salas mediante pruebas
+de carga; una instalación de mayor capacidad necesitará distribuir salas entre
+procesos/workers manteniendo un único propietario autoritativo para cada mundo.
 
 ## Despliegue en producción
 

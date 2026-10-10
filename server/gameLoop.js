@@ -72,6 +72,11 @@ class GameLoop {
           p.respawnAt = now + 3000;
           // Drop acotado para no inflar la red ni duplicar material por cada tick.
           const count = Math.min(20, p.deathState.scrap, 250 - this.state.scraps.size);
+          if (count === 0 && p.deathState.scrap > 0) {
+            // Si el mapa está lleno, consolidar el drop en una pieza existente.
+            const scrap = this.state.scraps.values().next().value;
+            if (scrap) { scrap.x = p.x; scrap.y = p.y; scrap.value += p.deathState.scrap; }
+          }
           for (let i = 0; i < count; i++) {
             const angle = i * 2.39996;
             const value = Math.floor(p.deathState.scrap / count) +
@@ -141,10 +146,10 @@ class GameLoop {
             else {
               player.upgradeOptions = options.map(option => option.type);
               this.io.to(pid).emit('showLevelUpOptions', {
-              roomId: this.state.roomId,
-              level: player.level,
-              options,
-            });
+                roomId: this.state.roomId,
+                level: player.level,
+                options,
+              });
             }
             // Solo se procesa una subida por tick para evitar spamm
             break;

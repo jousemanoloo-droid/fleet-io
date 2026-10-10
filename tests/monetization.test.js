@@ -184,13 +184,17 @@ test('client death modal blocks input, retries cancelled ads and waits for serve
     emit: (...args) => requests.push(args),
   };
   let success, failure;
+  const gameplay = [];
   const context = {
     Phaser: { Scene: class {} }, performance: { now: () => 1000 }, io: () => socket,
     document: { readyState: 'loading', addEventListener() {}, getElementById: node },
-    window: { AdManager: { showRewardedAd(ok, fail) { success = ok; failure = fail; } } },
+    window: { AdManager: {
+      showRewardedAd(ok, fail) { success = ok; failure = fail; },
+      gameplayStart() { gameplay.push('start'); }, gameplayStop() { gameplay.push('stop'); },
+    } },
   };
   let source = fs.readFileSync(path.join(__dirname, '../client/game.js'), 'utf8');
-  source = source.replace('  function bootPhaser() {', '  globalThis.testing = { C, GameScene };\n  function bootPhaser() {');
+  source = source.replace('  async function bootPhaser() {', '  globalThis.testing = { C, GameScene };\n  async function bootPhaser() {');
   vm.runInNewContext(source, context);
   const { C, GameScene } = context.testing;
   const scene = new GameScene();
@@ -205,6 +209,7 @@ test('client death modal blocks input, retries cancelled ads and waits for serve
   scene._syncLocalState(dead);
   scene._syncLocalState(dead);
   assert.equal(C.dead, true);
+  assert.ok(gameplay.includes('stop'));
   assert.equal(node('death-overlay').classList.contains('hidden'), false);
   assert.equal(node('rewarded-respawn-btn').focusCount, 1, 'repeated snapshots preserve modal');
   scene._handleInput(1000);
@@ -220,13 +225,19 @@ test('client death modal blocks input, retries cancelled ads and waits for serve
   assert.equal(requests[0][0], 'requestRewardedRespawn');
   assert.equal(requests[0][1].deathId, 1);
   assert.equal(C.dead, true, 'ad success alone does not resurrect locally');
+  assert.equal(gameplay.includes('start'), false);
   requests[0][2](null, { ok: false, error: 'Rejected' });
   assert.equal(C.respawnBusy, false);
   node('restart-btn').onclick();
   assert.equal(requests[1][0], 'requestRespawn');
   handlers.respawned({ ...dead, hp: 100, score: 0, scrap: 0, x: 300, y: 400, deathState: null });
   assert.equal(C.dead, false);
+  assert.equal(gameplay.at(-1), 'start', 'start gameplay only after authoritative respawn');
   assert.equal(node('death-overlay').classList.contains('hidden'), true);
   assert.equal(node('hud-score').textContent, '0');
   assert.equal(C.renderState.get('pilot').x, 300);
+  C.room = { roomId: 'current-room' };
+  scene._onSnapshot({ roomId: 'old-room', p: [dead] });
+  handlers.playerDied({ ...dead, roomId: 'old-room' });
+  assert.equal(C.dead, false, 'packets from the previous room must be ignored');
 });

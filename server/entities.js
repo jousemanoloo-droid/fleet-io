@@ -269,7 +269,7 @@ class Player extends Entity {
     return true;
   }
 
-  // Recolecta chatarra. Devuelve true si se ganó un dron.
+  // Recolecta chatarra. Devuelve cuántos drones se ganaron (incluye drops grandes).
   // Además detecta hitos de nivel (cada scrapPerLevel piezas).
   collectScrap(scrap) {
     const previousMilestone = Math.floor(this.scrapCollected / 5);

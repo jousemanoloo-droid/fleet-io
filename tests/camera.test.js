@@ -7,7 +7,7 @@ const vm = require('node:vm');
 
 function client() {
   const source = fs.readFileSync(path.join(__dirname, '../client/game.js'), 'utf8')
-    .replace('  function bootPhaser() {', '  globalThis.testing = { C, GameScene };\n  function bootPhaser() {');
+    .replace('  async function bootPhaser() {', '  globalThis.testing = { C, GameScene };\n  async function bootPhaser() {');
   const context = {
     Phaser: { Scene: class {} }, performance: { now: () => 1000 }, window: {},
     document: { readyState: 'loading', addEventListener() {} },

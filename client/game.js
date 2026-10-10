@@ -31,6 +31,7 @@
     myId: null,
     room: null,
     menuOpen: false,
+    mutationsOpen: false,
     world: { width: 4000, height: 4000 },
     tick: 0,
     lastServerTime: 0,
@@ -111,11 +112,34 @@
       this._buildWorldBounds();
       this._initMinimap();
       this._initJuice();
+      this._setupAdHooks();
 
       C.socket = this._setupSocket();
 
       setupUI();
       this._setupDeathUI();
+    }
+
+    _setupAdHooks() {
+      let previousMute = false, pausedByAd = false;
+      window.AdManager?.setGameHooks({
+        onAdStarted: () => {
+          previousMute = this.sound?.mute || false;
+          if (this.sound) this.sound.mute = true;
+          pausedByAd = this.scene.isActive();
+          if (pausedByAd) this.scene.pause();
+        },
+        onAdEnded: () => {
+          if (this.sound) this.sound.mute = previousMute;
+          if (pausedByAd) this.scene.resume();
+          pausedByAd = false;
+          syncGameplayTracking();
+        },
+      });
+      this.events.once('shutdown', () => {
+        window.AdManager?.setGameHooks({});
+        window.AdManager?.gameplayStop();
+      });
     }
 
     _setupDeathUI() {
@@ -151,15 +175,17 @@
     }
 
     _showDeath(me) {
+      window.AdManager?.gameplayStop?.();
       if (C.dead && C.deathId === me.deathId) return;
       C.dead = true;
       C.deathId = me.deathId;
+      C.mutationsOpen = false;
       document.getElementById('mutate-overlay').classList.add('hidden');
       const saved = me.deathState || { score: me.score, scrap: me.scrap, drones: me.drones.length };
       document.getElementById('death-summary').textContent =
         `Puntuación: ${saved.score} · Chatarra: ${saved.scrap} · Escoltas: ${saved.drones}`;
       document.getElementById('death-overlay').classList.remove('hidden');
-      this._setRespawnBusy(false, 'Anuncios en modo demostración.');
+      this._setRespawnBusy(false, window.AdManager?.mode === 'simulation' ? 'Anuncios en modo demostración.' : '');
       document.getElementById('rewarded-respawn-btn').focus();
     }
 
@@ -204,6 +230,7 @@
         C.targetWorld = { x: me.x, y: me.y };
         this.cameras.main.centerOn(me.x, me.y);
       }
+      syncGameplayTracking();
     }
 
     _initJuice() {
@@ -359,6 +386,7 @@
       });
 
       socket.on('disconnect', () => {
+        window.AdManager?.gameplayStop?.();
         C.connected = false;
         C.joined = false;
         C.dead = false;
@@ -388,6 +416,8 @@
       });
 
       socket.on('welcome', (data) => {
+        window.AdManager?.gameplayStop?.();
+        C.joined = false;
         // Cambio de sala = nueva línea temporal. No interpolar entidades de
         // mundos diferentes ni conservar las opciones de mutación anteriores.
         for (const id of this._playerSprites.keys()) this._removePlayer(id);
@@ -511,6 +541,7 @@
       C.tick = snap.t;
       const players = snap.p || [];
       const scrapsSnap = snap.s || [];
+      const respawnedPlayers = new Set();
       this._obstacles = snap.o || [];
       const shots = new Set();
       for (const shot of snap.b || []) {
@@ -535,6 +566,7 @@
 
       for (const p of players) {
         const previous = C.playerStates.get(p.id);
+        if (previous && previous.hp <= 0 && p.hp > 0) respawnedPlayers.add(p.id);
         if (previous && previous.hp > 0) {
           if (typeof p.hp === 'number' && p.hp <= 0) {
             this._explodePlayer(p.id, previous);
@@ -584,7 +616,7 @@
           drones: (p.drones || []).map(d => ({ id: d.id, x: d.x, y: d.y })),
           t: now,
         };
-        if (C._prevStates.has(p.id)) {
+        if (C._prevStates.has(p.id) && !respawnedPlayers.has(p.id)) {
           const last = C._prevStates.get(p.id);
           C._prevStates.set(p.id, [last[1] || last, prevSnap]);
         } else {
@@ -1201,7 +1233,9 @@
       if (event.key === 'Enter') document.getElementById('join-room-btn').click();
     });
     document.getElementById('menu-btn').onclick = () => {
+      if (window.AdManager?.busy) return;
       C.menuOpen = true;
+      window.AdManager?.gameplayStop?.();
       document.getElementById('overlay').classList.remove('hidden');
       document.getElementById('resume-btn').hidden = !C.joined;
       setStatus('Elige una sala o vuelve a tu partida.', '');
@@ -1248,6 +1282,12 @@
     C.menuOpen = false;
     const o = document.getElementById('overlay');
     if (o) o.classList.add('hidden');
+    syncGameplayTracking();
+  }
+
+  function syncGameplayTracking() {
+    const playing = C.connected && C.joined && !C.dead && !C.menuOpen && !C.mutationsOpen;
+    window.AdManager?.[playing ? 'gameplayStart' : 'gameplayStop']?.();
   }
 
   function updateHUD() {
@@ -1269,10 +1309,14 @@
   }
 
   function hideMutations() {
+    C.mutationsOpen = false;
     document.getElementById('mutate-overlay').classList.add('hidden');
+    syncGameplayTracking();
   }
 
   function showMutations(options, level) {
+    C.mutationsOpen = true;
+    window.AdManager?.gameplayStop?.();
     const box = document.getElementById('mutate-options');
     box.replaceChildren();
     document.getElementById('mutate-level').textContent = String(level);
@@ -1353,14 +1397,16 @@
   // ------------------------------------------------------------------
   // Configuración y arranque de Phaser
   // ------------------------------------------------------------------
-  function bootPhaser() {
+  async function bootPhaser() {
+    await window.AdManager?.ready;
     const scaleMode = Phaser.Scale.RESIZE;
+    const parent = document.getElementById('game');
 
     const config = {
       type: Phaser.AUTO,
       parent: 'game',
-      width: window.innerWidth,
-      height: window.innerHeight,
+      width: parent.clientWidth || window.innerWidth,
+      height: parent.clientHeight || window.innerHeight,
       backgroundColor: '#03040c',
       scale: {
         mode: scaleMode,
@@ -1379,7 +1425,16 @@
       },
     };
 
-    new Phaser.Game(config);
+    const game = new Phaser.Game(config);
+    // También detectar cambios del contenedor sin un resize de window (iframe).
+    if (window.ResizeObserver) {
+      const observer = new window.ResizeObserver(entries => {
+        const { width, height } = entries[0].contentRect;
+        if (width > 0 && height > 0) game.scale.resize(Math.round(width), Math.round(height));
+      });
+      observer.observe(parent);
+      game.events.once('destroy', () => observer.disconnect());
+    }
   }
 
   if (document.readyState === 'loading') {
