@@ -127,6 +127,7 @@ test('socket handlers reject living, duplicate and stale requests; ignore client
       if (name === 'http') return { createServer: () => fakeServer };
       if (name === 'socket.io') return { Server: FakeIO };
       if (name === './entities') return require('../server/entities');
+      if (name === './rpg') return require('../server/rpg');
       if (name === './gameLoop') return { GameLoop: class { start() {} } };
       if (name === './roomManager') return require('../server/roomManager');
       return require(name);
@@ -158,6 +159,31 @@ test('socket handlers reject living, duplicate and stale requests; ignore client
   handlers.join({ name: 'Exploit' });
   assert.equal(context.state.current('pilot').players.get('pilot'), p);
   assert.equal(emitted.filter(([name]) => name === 'respawned').length, 2);
+  const room = context.state.current('pilot');
+  p.attributePoints = 3;
+  handlers.allocateAttribute({ roomId: 'old', attribute: 'shield' }, ack);
+  assert.equal(result.ok, false);
+  handlers.allocateAttribute({ roomId: room.roomId, deathId: 0, attribute: 'shield' }, ack);
+  assert.equal(result.ok, false, 'a request from a previous life is rejected');
+  handlers.allocateAttribute({ roomId: room.roomId, deathId: p.deathId, attribute: 'shield' }, ack);
+  assert.equal(result.ok, true); assert.equal(p.attributePoints, 2); assert.equal(p.maxHp, 150);
+  handlers.useAbility({ roomId: room.roomId, type: 'shield' }, ack);
+  assert.equal(result.ok, true);
+  handlers.useAbility({ roomId: room.roomId, type: 'shield' }, ack);
+  assert.equal(result.ok, false, 'cooldown cannot be bypassed');
+  handlers.claimDailyBoost({}, ack); assert.equal(result.ok, true);
+  handlers.claimDailyBoost({}, ack); assert.equal(result.ok, false);
+  const killer = new Player('killer', 'Killer'); killer.x = killer.y = 2000;
+  room.players.set(killer.id, killer); room.obstacles.clear();
+  p.shieldUntil = p.spawnProtectionUntil = 0;
+  p.takeDamage(p.hp, killer);
+  handlers.requestRevengeRespawn({ roomId: room.roomId, deathId: p.deathId }, ack);
+  assert.equal(result.ok, true);
+  assert.ok(Math.hypot(p.x - killer.x, p.y - killer.y) >= 400);
+  assert.ok(Math.hypot(p.x - killer.x, p.y - killer.y) <= 500);
+  assert.equal(p.score, 0); assert.equal(p.level, 1); assert.equal(p.hp, 100);
+  handlers.requestRevengeRespawn({ roomId: room.roomId, deathId: p.deathId }, ack);
+  assert.equal(result.ok, false, 'revenge cannot resurrect twice');
 });
 
 test('client death modal blocks input, retries cancelled ads and waits for server respawn', () => {
@@ -188,12 +214,15 @@ test('client death modal blocks input, retries cancelled ads and waits for serve
   const context = {
     Phaser: { Scene: class {} }, performance: { now: () => 1000 }, io: () => socket,
     document: { readyState: 'loading', addEventListener() {}, getElementById: node },
-    window: { AdManager: {
+    window: { io: () => socket, AdManager: {
       showRewardedAd(ok, fail) { success = ok; failure = fail; },
       gameplayStart() { gameplay.push('start'); }, gameplayStop() { gameplay.push('stop'); },
     } },
   };
-  let source = fs.readFileSync(path.join(__dirname, '../client/game.js'), 'utf8');
+  let source = fs.readFileSync(path.join(__dirname, '../client/js/game-scene.js'), 'utf8');
+  for (const file of ['movement', 'progression', 'player', 'network']) {
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../client/js/' + file + '.js'), 'utf8'), context);
+  }
   source = source.replace('  async function bootPhaser() {', '  globalThis.testing = { C, GameScene };\n  async function bootPhaser() {');
   vm.runInNewContext(source, context);
   const { C, GameScene } = context.testing;

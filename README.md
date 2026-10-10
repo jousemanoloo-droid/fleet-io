@@ -18,8 +18,19 @@
 fleet-io/
 ├── client/
 │   ├── index.html      # Punto de entrada HTML + HUD + Overlay
-│   ├── game.js         # Lógica Phaser: input, render, interpolación
+│   ├── game.js         # Arranque estable del cliente
+│   ├── js/
+│   │   ├── game-scene.js # Escena, input, HUD y eventos Socket.IO
+│   │   ├── renderer.js # WebGL, Arcade y contador FPS opcional
+│   │   ├── player.js   # Predicción y reconciliación del jugador local
+│   │   ├── movement.js # Paso fijo compartido con el servidor
+│   │   ├── progression.js # Curva de XP compartida, niveles 1–40
+│   │   ├── economy.js   # Monedas, tienda y recompensa diaria local
+│   │   ├── features.js  # Habilidades, atributos y efectos sociales
+│   │   ├── network.js  # Protocolo compacto e interpolación
+│   │   └── visuals.js  # Texturas sci-fi y fondo de paralaje
 │   ├── config.js       # URL pública del backend
+│   ├── features.css    # Modales y controles RPG responsivos
 │   └── monetization.js # Adaptador de anuncios recompensados
 ├── server/
 │   ├── server.js       # Express + Socket.io (entrypoint)
@@ -28,6 +39,7 @@ fleet-io/
 │   ├── roomManager.js  # Matchmaking, códigos y ciclo de vida
 │   ├── gameRoom.js     # Mundo aislado y colecciones Map
 │   ├── bot.js          # FSM y steering de bots
+│   ├── rpg.js          # XP, atributos, habilidades y evolución
 │   └── combat.js       # Disparos, colisiones y obstáculos
 ├── package.json
 └── README.md
@@ -81,8 +93,8 @@ Abre varias pestañas para probar el multijugador localmente.
 ## Arquitectura de Red (Resumen)
 
 ```
-[Cliente Phaser 60FPS]
-        │  playerMove (throttled ~30Hz)
+[Cliente Phaser WebGL, RAF 60/120/144 Hz]
+        │  playerMove (paso fijo 30 Hz, seq, tx, ty)
         ▼
 [Socket.io WebSocket]
         │
@@ -92,10 +104,10 @@ Abre varias pestañas para probar el multijugador localmente.
   ├─ scrap.update()
   ├─ checkScrapCollection() (radio absorb)
   └─ maybeSpawnScrap()
-        │  gameState snapshot (volatile, ~15Hz)
+        │  gameState snapshot (volatile, 30 Hz, formato v2)
         ▼
-[Cliente: interpolación 100ms buffer]
-  └─ render 60FPS (Phaser RAF)
+[Cliente: predicción local + buffer remoto 80 ms / 5 estados]
+  └─ render independiente del tick de red (Phaser RAF)
 ```
 
 ## Personalización Rápida
@@ -112,7 +124,7 @@ Abre varias pestañas para probar el multijugador localmente.
 |----------------------------------|--------------------------------------------------------------------|
 | El navegador abre pantalla negra | Comprueba la consola (F12). Asegúrate de haber hecho `npm install`.|
 | `Error: listen EADDRINUSE :3000` | El puerto 3000 está ocupado. Usa `set PORT=3001 && npm start`      |
-| Ping alto o jugadores "tartan"   | Reduce `INTERP_BUFFER_MS` en [client/game.js](client/game.js#L12)  |
+| Tirones con red inestable | Ajusta `INTERP_BUFFER_MS` en `client/js/game-scene.js` (80 ms por defecto). |
 | No carga Phaser / Socket.io CDN  | Comprueba conexión a internet o reemplaza CDN por archivos locales.|
 
 ## Anuncios recompensados y resurrección
@@ -138,8 +150,9 @@ Para usar otro proveedor, usar `AdManager.setAdapter(adapter)` con los métodos
 `showRewardedAd()` y `showInterstitialAd()`. Ambos deben devolver `Promise<boolean>`;
 el wrapper del SDK resuelve `true` al completar y `false` al cancelar o no disponer
 de anuncios. Los anuncios display de AdSense no sirven por sí solos como rewarded ads.
-Antes de usar recompensas reales, añadir validación del comprobante del proveedor
-en `handleRespawn` del servidor: el modo demo confía en la finalización del cliente.
+La confirmación de anuncios procede del SDK en el cliente; el backend valida
+la muerte y la economía retenida, pero no dispone de una prueba independiente
+de visualización del anuncio. Un cliente modificado puede solicitar una recompensa.
 
 El servidor conserva una captura de puntuación, chatarra y número de escoltas al
 morir. Cada `deathId` admite una sola resurrección: la recompensada conserva el 50%
@@ -149,7 +162,7 @@ posición separada de los enemigos. `takeDamage(amount)` respeta tres segundos d
 protección tras resurgir. El cliente detiene el envío de movimientos durante la
 muerte y el anuncio, y espera el estado autoritativo para cerrar el modal.
 
-Las escoltas disparan automáticamente a enemigos cercanos. Los proyectiles usan
+Los cañones del chasis y los drones autónomos atacan enemigos cercanos. Los proyectiles usan
 colisiones continuas contra naves, drones y asteroides. Una nave humana permanece
 muerta hasta elegir una resurrección; los bots resurgirán tras tres segundos.
 Las pruebas cubren las muertes, anuncios, resurrecciones y eventos cliente/servidor:
@@ -174,7 +187,7 @@ muestra en el HUD con un botón de copia. El modo solitario admite un humano y s
 bots identificados como `[BOT]`, con nombres en naranja.
 
 Cada `GameRoom` mantiene Maps independientes de jugadores, chatarra, asteroides y
-proyectiles, y su propio intervalo a 30 TPS. Los snapshots a 15 Hz incluyen `roomId`,
+proyectiles, y su propio intervalo a 30 TPS. Los snapshots a 30 Hz incluyen `roomId`,
 `p` (humanos/bots), `s` (chatarra), `b` (proyectiles) y `o` (obstáculos). Solo se
 envían a sockets de esa sala. Al cambiar de sala, el cliente limpia entidades,
 interpolación, partículas y mutaciones pendientes, y descarta paquetes de otro mundo.
@@ -321,8 +334,111 @@ Referencia: [HTML estático en Cloudflare Pages](https://developers.cloudflare.c
 - Mantén **una sola instancia y un solo proceso**: el mundo vive en memoria,
   se pierde al reiniciar y no se comparte entre réplicas. Para escalar necesitas
   gestionar salas/estado autoritativo y coordinación entre procesos.
-- El sistema de anuncios continúa en modo demo; activar monetización real requiere
-  integrar y validar las recompensas del proveedor, como se indica arriba.
+- CrazyGames SDK v3 usa anuncios nativos en el portal y simulación en localhost.
+  Valida los anuncios reales en la vista previa de CrazyGames antes de publicar.
 
 ## Licencia
 MIT
+
+## Renderizado sci-fi, predicción y rendimiento
+
+`client/js/renderer.js` fuerza WebGL y configura Arcade sin debug. El render usa
+requestAnimationFrame: `target: 120` no limita el refresco ni garantiza FPS en todos
+los dispositivos. La cámara y las animaciones usan delta time. La simulación de
+movimiento es compartida en `movement.js`, con pasos de 33,33 ms e interpolación
+visual entre pasos; el servidor conserva la autoridad sobre combate y economía.
+
+El jugador local responde al ratón, WASD o flechas. Cada entrada tiene `seq`; el
+servidor consume como máximo una por tick y confirma `inputSeq`. El cliente elimina
+entradas confirmadas y reproduce las restantes. Rebase continuo de la simulación,
+con offset visual amortiguado equivalente a 0,2 a 60 Hz y limitado al 25% de la
+velocidad de avance (12 px/s en reposo), evita acumular errores y corregirlos con
+retrocesos periódicos. Muerte, resurrección y cambio de
+sala reinician la predicción para evitar arrastrar estados del mundo anterior.
+Los enemigos y láseres conservan cinco snapshots y se interpolan a 80 ms, incluida
+la rotación por el arco más corto. No se extrapolan enemigos indefinidamente si
+faltan paquetes. Las colas de entrada y partículas tienen límites explícitos.
+
+El protocolo `gameState.v = 2` empaqueta jugadores, drones, chatarra y proyectiles
+en arrays; `network.js` comparte el codificador/decodificador con el servidor y
+acepta también snapshots antiguos de objetos. Cada snapshot sigue siendo completo,
+por lo que los envíos volatile no dependen de una cadena de deltas que podría
+perderse. Desplegar cliente y servidor juntos al actualizar a este protocolo.
+
+Naves, drones, escudos, láseres, asteroides y chatarra usan texturas procedurales
+reutilizadas. Las capas TileSprite de estrellas usan paralaje 0,1 / 0,2 / 0,3 y una
+nebulosa oscura. Los efectos se omiten fuera de cámara; HUD se actualiza al cambiar
+valores y la tabla de líderes como máximo cuatro veces por segundo. Las mutaciones
+se desbloquean al alcanzar niveles 10, 20, 30 y 40. La curva de XP se comparte entre
+servidor y HUD. Un drop que cruza varios hitos abre una sola elección de mutación.
+
+## Evolución, habilidades y economía
+
+Cada pieza de chatarra concede 10 XP y una baja concede 100 XP. Para subir se
+consumen `floor(100 × nivel^1.4)` XP y se conserva el excedente. Los primeros costes
+son 100, 263, 465, 696 y 951 XP. El máximo es nivel 40. Cada subida concede tres
+puntos de atributos; las asignaciones y sus límites se validan en el servidor.
+
+| Atributo | Por punto | Límite |
+| --- | --- | --- |
+| Velocidad | +15 px/s | +150 px/s |
+| Escudo | +50 HP máximos | +500 HP |
+| Daño | +0,1 al multiplicador | Multiplicador 2,0 |
+| Cadencia | −15 ms de recarga | Recarga mínima 100 ms |
+
+Los chasis evolucionan en niveles 1/10/25/40: caza de un cañón, fragata de dos,
+crucero con cañones pesados y generadores laterales, y nodriza de cuatro cañones.
+La nodriza incluye dos drones autónomos que orbitan cada dos segundos y atacan
+al rival más cercano dentro de 400 px, además de las escoltas recolectadas.
+
+| Control | Habilidad | Duración | Recarga |
+| --- | --- | --- | --- |
+| Shift / clic derecho | Turbo ×2,8 y protección de daño | 250 ms | 3 s |
+| Q | Escudo inmune a todo daño | 2 s | 12 s |
+| E | EMP, radio 350 px: ralentiza e impide disparar | 1,5 s | 15 s |
+
+Los impactos añaden una pausa visual breve y sacudida ligera; las explosiones
+pesadas usan una sacudida mayor. Los proyectiles emiten estelas de 150 ms.
+Los efectos tienen límites de partículas y se omiten fuera de la cámara.
+
+La pantalla de muerte identifica al atacante con nave, vida, puntuación y racha.
+**Revenge Spawn** reinicia sin flota a 400–500 px del atacante si sigue vivo y hay
+un punto seguro, con marcador durante tres segundos. El anuncio recompensado
+mantiene el 50% de puntuación, XP, chatarra y escoltas; el reinicio gratuito
+borra la progresión. Cada muerte admite una única resurrección. El líder vivo
+lleva corona y aura dorada y su posición exacta aparece en todos los radares.
+Las rachas 2/3/5+ muestran DOUBLE KILL / DOMINATING / UNSTOPPABLE.
+
+Al terminar una partida se otorgan `floor(puntuación / 50)` monedas y se muestra
+el tiempo de supervivencia. La liquidación usa identificadores de partida para
+evitar repetirla al recibir snapshots de muerte o recargar. La tienda permite
+comprar y equipar Alien Green (600), Golden Elite (1500), Mecha Chrome (1000),
+Plasma Cyan (gratis), Solar Orange (400) y Void Purple (800).
+
+La recompensa diaria concede 500 monedas cada 24 horas y Carga Solar (+10% de
+velocidad durante 15 s) en la primera partida posterior a reclamarla. Monedas,
+compras, selección y fecha de reclamación se guardan en localStorage, incluyendo
+las claves `fleet_io_coins`, `fleet_io_unlocked_skins`, `fleet_io_unlocked_trails`
+y `fleet_io_last_login`. Si el navegador bloquea el almacenamiento, se usa memoria
+de sesión. Esta economía es local al navegador y modificable por el usuario;
+no representa una cuenta ni saldo protegido en el backend.
+
+CrazyGames conserva `gameplayStart`/`gameplayStop`, pausa y silencio durante
+anuncios, y éxito de recompensa exclusivamente tras `adFinished`. Los paneles
+de atributos y tienda detienen el seguimiento de gameplay; el mundo multijugador
+continúa en el servidor mientras están abiertos.
+
+Para comprobarlo localmente sin editar la URL de Render en `client/config.js`:
+
+```bash
+npm run preview
+```
+
+Abrir `http://127.0.0.1:3013/?debug=1`: muestra FPS reales del render y usa un backend
+local en el puerto 3014. `PREVIEW_PORT` permite cambiar el primer puerto; el backend
+usa el siguiente. La URL de producción y la integración CrazyGames se conservan.
+Ejecutar `npm test` para verificar predicción a 60/120/144 Hz, reconciliación, red,
+mutaciones, cámara, anuncios y resurrección. Los anuncios reales se validan en la
+vista previa del portal. Las API de RAF y TileSprite siguen la documentación de
+[Phaser TimeStep](https://docs.phaser.io/api-documentation/class/core-timestep) y
+[TileSprite](https://docs.phaser.io/phaser/concepts/gameobjects/tile-sprite).

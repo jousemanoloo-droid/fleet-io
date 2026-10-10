@@ -7,6 +7,9 @@ const WORLD = {
   width: 4000,
   height: 4000,
 };
+const Movement = require('../client/js/movement');
+const Progression = require('../client/js/progression');
+const RPG = require('./rpg');
 
 class Entity {
   constructor(x, y, radius) {
@@ -73,8 +76,8 @@ class Drone {
     this.health = 1;
   }
 
-  update(owner) {
-    this.angle += this.speed * 0.016;
+  update(owner, deltaSeconds = 1 / 30) {
+    this.angle += this.speed * deltaSeconds;
     const angleOffset = this.index * (Math.PI * 2 / 6);
     this.x = owner.x + Math.cos(this.angle + angleOffset) * this.orbitRadius;
     this.y = owner.y + Math.sin(this.angle + angleOffset) * this.orbitRadius;
@@ -122,7 +125,6 @@ class Player extends Entity {
     this.hp = 100;
     this.maxHp = 100;
     this.level = 1;
-    this.scrapPerLevel = 10;            // piezas necesarias para subir de nivel
     this.collectRadius = this.radius + 12;  // radio de absorción base
     this.mutations = [];                // lista de mutaciones aplicadas
     this.levelUpPending = false;        // true mientras el jugador elige carta
@@ -132,6 +134,10 @@ class Player extends Entity {
     this.deathId = 0;
     this.deathState = null;
     this.spawnProtectionUntil = 0;
+    this.rotation = 0;
+    this.inputSeq = 0;
+    this.inputQueue = [];
+    RPG.init(this);
   }
 
   static randomColor() {
@@ -151,35 +157,11 @@ class Player extends Entity {
     if (this.hp <= 0) this.die();
     if (!this.alive) return;
 
-    const dx = this.targetX - this.x;
-    const dy = this.targetY - this.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    // Durante la elección de mutación, el jugador se ralentiza (70% de velocidad)
-    const speedMul = this.levelUpPending ? 0.3 : 1;
-
-    if (dist > 2) {
-      const nx = dx / dist;
-      const ny = dy / dist;
-      this.vx += nx * this.acceleration;
-      this.vy += ny * this.acceleration;
-    }
-
-    this.vx *= this.friction;
-    this.vy *= this.friction;
-
-    const speed = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-    const effectiveMax = this.maxSpeed * speedMul;
-    if (speed > effectiveMax) {
-      this.vx = (this.vx / speed) * effectiveMax;
-      this.vy = (this.vy / speed) * effectiveMax;
-    }
-
-    this.x += this.vx;
-    this.y += this.vy;
-
-    this.x = Math.max(this.radius, Math.min(WORLD.width - this.radius, this.x));
-    this.y = Math.max(this.radius, Math.min(WORLD.height - this.radius, this.y));
+    const input = this.inputQueue.shift();
+    if (input) { this.setTarget(input.tx, input.ty); this.inputSeq = input.seq; }
+    RPG.movement(this);
+    Movement.step(this, { tx: this.targetX, ty: this.targetY }, WORLD);
+    RPG.orbit(this);
 
     for (const drone of this.drones) {
       drone.update(this);
@@ -200,13 +182,19 @@ class Player extends Entity {
     this.deathId++;
     this.deathState = Object.freeze({
       score: this.score, scrap: this.scrapCollected, drones: this.drones.length,
+      totalXp: this.totalXp, survivedMs: Date.now() - this.matchStartedAt,
     });
     this.hp = 0;
     this.alive = false;
     this.vx = this.vy = 0;
+    this.inputQueue.length = 0;
     this.drones = [];
+    this.orbitalDrones = [];
+    this.killStreak = 0;
+    this.dashUntil = this.shieldUntil = this.empUntil = this.dailyBoostUntil = 0;
     this.levelUpPending = false;
     this.invulnerable = false;
+    this.upgradeOptions = [];
     return true;
   }
 
@@ -223,8 +211,13 @@ class Player extends Entity {
       this.maxSpeed = 4.5;
       this.collectRadius = this.radius + 12;
       this.mutations = [];
+      this.attributes = { speed: 0, shield: 0, damage: 0, fireRate: 0 };
+      this.attributePoints = 0;
     }
-    this.level = Math.floor(this.scrapCollected / this.scrapPerLevel) + 1;
+    RPG.restoreXP(this, (saved.totalXp || saved.scrap * 10) * fraction);
+    this.killedBy = null;
+    this.matchStartedAt = Date.now();
+    this.abilityReady = { dash: 0, shield: 0, emp: 0 };
     // Buscar separación respecto a naves y escoltas. En mapas saturados,
     // escoger el punto más alejado y conceder protección temporal.
     let best = null;
@@ -261,16 +254,24 @@ class Player extends Entity {
     return true;
   }
 
-  takeDamage(amount) {
+  takeDamage(amount, attacker = null) {
     if (!this.alive || this.invulnerable || Date.now() < this.spawnProtectionUntil ||
+        Date.now() < this.dashUntil || Date.now() < this.shieldUntil ||
         !Number.isFinite(amount) || amount <= 0) return false;
     this.hp = Math.max(0, this.hp - amount);
-    if (this.hp <= 0) this.die();
+    if (this.hp <= 0) {
+      if (attacker && attacker !== this) {
+        attacker.killStreak++; attacker.score += 100;
+        RPG.addXP(attacker, 100);
+        this.killedBy = RPG.killerInfo(attacker);
+      }
+      this.die();
+    }
     return true;
   }
 
   // Recolecta chatarra. Devuelve cuántos drones se ganaron (incluye drops grandes).
-  // Además detecta hitos de nivel (cada scrapPerLevel piezas).
+  // Además detecta hitos de nivel mediante la curva de coste creciente.
   collectScrap(scrap) {
     const previousMilestone = Math.floor(this.scrapCollected / 5);
     this.scrapCollected += scrap.value;
@@ -280,11 +281,14 @@ class Player extends Entity {
       Math.floor(this.scrapCollected / 5) - previousMilestone));
 
     // Detección de subida de nivel
-    const newLevel = Math.floor(this.scrapCollected / this.scrapPerLevel) + 1;
-    if (newLevel > this.level) {
-      this.level = newLevel;
-      this.levelUpPending = true;
-      this.invulnerable = true;
+    const previousLevel = this.level;
+    RPG.addXP(this, scrap.value * Progression.XP_PER_SCRAP);
+    if (this.level > previousLevel) {
+      const milestone = Math.floor(this.level / 10) > Math.floor(previousLevel / 10);
+      if (milestone) {
+        this.levelUpPending = true;
+        this.invulnerable = true;
+      }
     }
 
     return gainedDrone;
@@ -346,6 +350,9 @@ class Player extends Entity {
       y: Math.round(this.y),
       vx: +this.vx.toFixed(2),
       vy: +this.vy.toFixed(2),
+      rotation: +this.rotation.toFixed(4),
+      maxSpeed: this.maxSpeed,
+      inputSeq: this.inputSeq,
       color: this.color,
       score: this.score,
       scrap: this.scrapCollected,
@@ -361,6 +368,8 @@ class Player extends Entity {
       levelUpPending: this.levelUpPending,
       invulnerable: this.invulnerable || Date.now() < this.spawnProtectionUntil,
       drones: this.drones.map((d) => d.toNetwork()),
+      orbitalDrones: this.orbitalDrones,
+      ...RPG.network(this),
     };
   }
 }

@@ -6,6 +6,8 @@
 const TICK_RATE = 30;
 const TICK_INTERVAL = 1000 / TICK_RATE;
 const { updateCombat, resolveObstacles } = require('./combat');
+const Network = require('../client/js/network');
+const RPG = require('./rpg');
 
 class GameLoop {
   constructor(gameState, io) {
@@ -39,15 +41,15 @@ class GameLoop {
     this.tickCount++;
 
     this._updatePlayers();
+    this.state.impacts = [];
     updateCombat(this.state, this.tickCount);
     this._processDeaths();
     this._updateScrap();
     this._checkScrapCollection();
     this._maybeSpawnScrap();
+    this._flushProgression();
 
-    if (this.tickCount % 2 === 0) {
-      this._broadcastState();
-    }
+    this._broadcastState(); // 30 snapshots/s, independiente del refresco del cliente.
   }
 
   _updatePlayers() {
@@ -98,6 +100,28 @@ class GameLoop {
 
   _updateScrap() {
     for (const s of this.state.scraps.values()) s.update();
+  }
+
+  _flushProgression() {
+    for (const player of this.state.players.values()) {
+      if (player.alive && player.levelUpPending && !player.upgradeOptions?.length) {
+        const options = generateRandomUpgrades(3, player.mutations);
+        if (player.isBot) player.chooseUpgrade(options);
+        else {
+          player.upgradeOptions = options.map(option => option.type);
+          this.io.to(player.id).emit('showLevelUpOptions', { roomId: this.state.roomId, level: player.level, options });
+        }
+      }
+      for (const event of player.pendingLevelUps.splice(0)) {
+        if (!player.isBot) this.io.to(player.id).emit('level_up', { ...event, roomId: this.state.roomId });
+      }
+      if (player.isBot && player.attributePoints > 0) {
+        for (const key of ['damage', 'shield', 'speed', 'fireRate']) {
+          const points = Math.min(player.attributePoints, RPG.LIMITS[key] - player.attributes[key]);
+          if (points > 0) RPG.allocate(player, key, points);
+        }
+      }
+    }
   }
 
   _checkScrapCollection() {
@@ -176,17 +200,24 @@ class GameLoop {
   }
 
   _broadcastState() {
-    const playersPayload = Array.from(this.state.players.values(), p => p.toNetwork());
-    const scrapsPayload = Array.from(this.state.scraps.values(), s => s.toNetwork());
+    const king = Array.from(this.state.players.values()).filter(p => p.alive).sort((a, b) => b.score - a.score)[0];
+    const playersPayload = Array.from(this.state.players.values(), Network.packPlayer);
+    const scrapsPayload = Array.from(this.state.scraps.values(), s =>
+      [s.id, Math.round(s.x), Math.round(s.y), s.value, s.color, +s.spin.toFixed(2)]);
 
     const snapshot = {
+      v: 2,
       t: this.tickCount,
       ts: Date.now(),
       roomId: this.state.roomId,
       p: playersPayload,
       s: scrapsPayload,
-      b: Array.from(this.state.projectiles.values(), b => ({ id: b.id, x: b.x, y: b.y, c: b.color })),
+      b: Array.from(this.state.projectiles.values(), b =>
+        [b.id, +b.x.toFixed(1), +b.y.toFixed(1), b.color, +Math.atan2(b.vy, b.vx).toFixed(4)]),
       o: Array.from(this.state.obstacles.values()),
+      i: this.state.impacts || [],
+      kingId: king?.id || null,
+      king: king ? { id: king.id, x: king.x, y: king.y } : null,
     };
 
     this.io.to(this.state.roomId).volatile.emit('gameState', snapshot);

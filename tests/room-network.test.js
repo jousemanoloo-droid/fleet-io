@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
 const path = require('node:path');
+const Network = require('../client/js/network');
 
 // Cliente de prueba del protocolo Engine.IO/Socket.IO por WebSocket nativo.
 // No se necesita añadir una dependencia de ejecución para las pruebas.
@@ -22,7 +23,8 @@ class RoomClient {
         else if (packet === '2') this.ws.send('3');
         else if (packet.startsWith('40')) resolve();
         else if (packet.startsWith('42')) {
-          const [name, data] = JSON.parse(packet.slice(2));
+          const [name, raw] = JSON.parse(packet.slice(2));
+          const data = name === 'gameState' ? Network.decode(raw) : raw;
           this.events.push({ name, data });
           for (const waiter of [...this.waiters]) {
             if (waiter.predicate({ name, data })) {
@@ -98,6 +100,10 @@ test('real WebSocket clients join isolated public/private/solo rooms and transfe
   assert.equal(soloResult.room.bots, 7);
   const shared = await creator.waitFor(event => event.name === 'gameState' && event.data.p.length === 2);
   assert.deepEqual(shared.p.map(p => p.name).sort(), ['Creator', 'Friend']);
+  creator.ws.send('42' + JSON.stringify(['playerMove', { tx: 2000, ty: 2000, seq: 1 }]));
+  const acknowledged = await creator.waitFor(event => event.name === 'gameState' &&
+    event.data.p.some(p => p.name === 'Creator' && p.inputSeq === 1));
+  assert.equal(acknowledged.p.find(p => p.name === 'Creator').maxSpeed, 4.5);
   const isolated = await solo.waitFor(event => event.name === 'gameState');
   assert.equal(isolated.p.filter(p => p.isBot).length, 7);
   assert.equal(isolated.p.some(p => p.name === 'Creator'), false);

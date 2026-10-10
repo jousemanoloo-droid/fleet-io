@@ -9,6 +9,7 @@ const express = require('express');
 const { Server: SocketIOServer } = require('socket.io');
 
 const { RoomManager } = require('./roomManager');
+const RPG = require('./rpg');
 
 const PORT = process.env.PORT || 3000;
 const CLIENT_DIR = path.join(__dirname, '..', 'client');
@@ -99,10 +100,18 @@ io.on('connection', (socket) => {
   });
 
   socket.on('playerMove', data => {
-    const { player } = current();
+    const { player, room } = current();
     if (!player || !player.alive || player.hp <= 0 || !data) return;
+    if (data.roomId && data.roomId !== room.roomId) return;
+    if (Number.isInteger(data.deathId) && data.deathId !== player.deathId) return;
     const tx = Number(data.tx), ty = Number(data.ty);
-    if (Number.isFinite(tx) && Number.isFinite(ty)) player.setTarget(tx, ty);
+    if (!Number.isFinite(tx) || !Number.isFinite(ty)) return;
+    if (Number.isSafeInteger(data.seq) && data.seq > 0) {
+      const last = player.inputQueue.at(-1)?.seq || player.inputSeq;
+      if (data.seq <= last) return;
+      player.inputQueue.push({ tx, ty, seq: data.seq });
+      if (player.inputQueue.length > 6) player.inputQueue.shift();
+    } else player.setTarget(tx, ty); // Compatibilidad con clientes anteriores.
   });
 
   socket.on('selectUpgrade', data => {
@@ -116,7 +125,62 @@ io.on('connection', (socket) => {
       droneCount: player.drones.length, roomId: room.roomId });
   });
 
-  // Demo: reemplazar por validación de recompensa del proveedor antes de producción.
+  const reply = (ack, result) => { if (typeof ack === 'function') ack(result); };
+  const valid = data => {
+    const state = current();
+    return state.player?.alive && (!data?.roomId || data.roomId === state.room.roomId) &&
+      (data?.deathId === undefined || data.deathId === state.player.deathId) ? state : null;
+  };
+  socket.on('allocateAttribute', (data, ack) => {
+    const state = valid(data);
+    if (!state || !RPG.allocate(state.player, data?.attribute, data?.points ?? 1)) {
+      reply(ack, { ok: false, error: 'Puntos o atributo inválidos.' }); return;
+    }
+    reply(ack, { ok: true, player: state.player.toNetwork() });
+  });
+  socket.on('useAbility', (data, ack) => {
+    const state = valid(data);
+    if (!state || !RPG.activate(state.player, data?.type, state.room)) {
+      reply(ack, { ok: false, error: 'Habilidad en recarga o no disponible.' }); return;
+    }
+    state.room.io.to(state.room.roomId).emit('ability_used', { roomId: state.room.roomId,
+      id: state.player.id, type: data.type, x: state.player.x, y: state.player.y });
+    reply(ack, { ok: true, player: state.player.toNetwork() });
+  });
+  socket.on('setCosmetics', data => {
+    const state = valid(data);
+    if (!state) return;
+    if (['default', 'alien', 'gold', 'chrome'].includes(data?.skin)) state.player.skin = data.skin;
+    if (['cyan', 'orange', 'purple'].includes(data?.trail)) state.player.trail = data.trail;
+  });
+  socket.on('claimDailyBoost', (_data, ack) => {
+    const state = current();
+    if (!state.player?.alive || state.player.dailyBoostUsed) { reply(ack, { ok: false }); return; }
+    state.player.dailyBoostUsed = true; state.player.dailyBoostUntil = Date.now() + 15000;
+    reply(ack, { ok: true });
+  });
+
+  socket.on('requestRevengeRespawn', (data, ack) => {
+    const { room, player } = current();
+    const killer = room?.players.get(player?.killedBy?.id);
+    if (!player || player.alive || data?.deathId !== player.deathId ||
+        (data?.roomId && data.roomId !== room.roomId) || !killer?.alive) {
+      reply(ack, { ok: false, error: 'El rival ya no está disponible.' }); return;
+    }
+    // Comprobar el punto antes de consumir la muerte: permite reiniciar si no hay espacio.
+    const position = { x: player.x, y: player.y, targetX: player.targetX, targetY: player.targetY };
+    if (!RPG.revengeSpawn(player, killer, room)) {
+      Object.assign(player, position); reply(ack, { ok: false, error: 'No hay espacio seguro cerca del rival.' }); return;
+    }
+    const spawn = { x: player.x, y: player.y };
+    player.respawn(false, room.players, room.world, room.obstacles);
+    player.x = player.targetX = spawn.x; player.y = player.targetY = spawn.y;
+    socket.emit('respawned', { ...player.toNetwork(), roomId: room.roomId, revengeTarget: killer.id });
+    reply(ack, { ok: true });
+  });
+
+  // El SDK confirma la finalización en el cliente; deathId y la economía retenida
+  // siguen siendo autoritativos y cada muerte solo admite una resurrección.
   const handleRespawn = (rewarded, data, ack) => {
     const { room, player } = current();
     const reply = typeof ack === 'function' ? ack : () => {};

@@ -52,10 +52,11 @@ test('rooms isolate snapshots, collection, projectiles, mutations and cleanup ti
   const pa = manager.transfer(user, a, 'A');
   const pb = manager.transfer(socket('b'), b, 'B');
   a.scraps.clear(); b.scraps.clear();
-  a.spawnScrap(pa.x, pa.y, 10);
+  const levelTenScrap = require('../client/js/progression').threshold(10);
+  a.spawnScrap(pa.x, pa.y, levelTenScrap);
   b.spawnScrap(pb.x + 500, pb.y + 500, 3);
   a.loop._checkScrapCollection();
-  assert.equal(pa.scrapCollected, 10);
+  assert.equal(pa.scrapCollected, levelTenScrap);
   assert.equal(pb.scrapCollected, 0);
   assert.equal(b.scraps.size, 1);
   assert.equal(pa.upgradeOptions.length, 3);
@@ -63,8 +64,8 @@ test('rooms isolate snapshots, collection, projectiles, mutations and cleanup ti
   const states = events.filter(event => event.name === 'gameState');
   assert.equal(states[0].room, a.roomId);
   assert.equal(states[0].data.roomId, a.roomId);
-  assert.deepEqual(states[0].data.p.map(p => p.id), ['a']);
-  assert.deepEqual(states[1].data.p.map(p => p.id), ['b']);
+  assert.deepEqual(states[0].data.p.map(p => p[0]), ['a']);
+  assert.deepEqual(states[1].data.p.map(p => p[0]), ['b']);
   manager.leave(user);
   assert.equal(a.loop._interval, null);
   manager.sweep(a.emptySince + 59999);

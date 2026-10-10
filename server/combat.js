@@ -18,28 +18,49 @@ function segmentHit(x, y, nextX, nextY, target, radius) {
 
 function updateCombat(room, tick) {
   const players = [...room.players.values()];
-  for (const player of players) {
-    if (!player.alive || !player.drones.length || player.levelUpPending ||
-        tick < (player.nextFireTick || 0) || room.projectiles.size >= 240) continue;
-    let enemy = null, distance = 550;
+  const RPG = require('./rpg');
+  const now = Date.now();
+  const nearest = (player, origin, range) => {
+    let enemy = null, distance = range;
     for (const other of players) {
-      if (other === player || !other.alive || other.invulnerable ||
-          Date.now() < other.spawnProtectionUntil) continue;
-      const d = Math.hypot(other.x - player.x, other.y - player.y);
+      if (other === player || !other.alive || other.invulnerable || now < other.spawnProtectionUntil) continue;
+      const d = Math.hypot(other.x - origin.x, other.y - origin.y);
       if (d < distance) { enemy = other; distance = d; }
     }
-    if (!enemy) continue;
-    player.nextFireTick = tick + 12;
+    return { enemy, distance };
+  };
+  const fire = (player, origin, enemy, distance, heavy = false) => {
+    if (room.projectiles.size >= 240) return;
     const flightTicks = distance / 15;
-    const angle = Math.atan2(enemy.y + enemy.vy * flightTicks - player.y,
-      enemy.x + enemy.vx * flightTicks - player.x);
+    const angle = Math.atan2(enemy.y + enemy.vy * flightTicks - origin.y,
+      enemy.x + enemy.vx * flightTicks - origin.x);
     const id = `shot_${room.uidCounter++}`;
-    room.projectiles.set(id, {
-      id, ownerId: player.id, x: player.x + Math.cos(angle) * (player.radius + 8),
-      y: player.y + Math.sin(angle) * (player.radius + 8),
+    room.projectiles.set(id, { id, ownerId: player.id, x: origin.x, y: origin.y,
       vx: Math.cos(angle) * 15, vy: Math.sin(angle) * 15,
-      damage: 5 + Math.min(12, player.drones.length), ttl: 45, color: player.color,
-    });
+      damage: RPG.damage(player) * (heavy ? 1.35 : 1), ttl: 45, color: player.color });
+  };
+  for (const player of players) {
+    if (!player.alive || player.levelUpPending || now < player.empUntil) continue;
+    if (tick >= (player.nextFireTick || 0)) {
+      const { enemy, distance } = nearest(player, player, 550);
+      if (enemy) {
+        player.nextFireTick = tick + Math.ceil(RPG.cooldown(player) / (1000 / 30));
+        const chassis = RPG.tier(player.level);
+        const offsets = chassis === 4 ? [-15, -5, 5, 15] : chassis >= 2 ? [-5, 5] : [0];
+        const angle = Math.atan2(enemy.y - player.y, enemy.x - player.x);
+        for (const y of offsets) {
+          fire(player, { x: player.x + Math.cos(angle) * 10 - Math.sin(angle) * y,
+            y: player.y + Math.sin(angle) * 10 + Math.cos(angle) * y }, enemy, distance, chassis >= 3);
+        }
+      }
+    }
+    if (player.level === 40 && tick >= (player.nextOrbitalFireTick || 0)) {
+      player.nextOrbitalFireTick = tick + 12;
+      for (const drone of player.orbitalDrones) {
+        const { enemy, distance } = nearest(player, drone, 400);
+        if (enemy) fire(player, drone, enemy, distance);
+      }
+    }
   }
   for (const [id, shot] of room.projectiles) {
     const nextX = shot.x + shot.vx, nextY = shot.y + shot.vy;
@@ -60,7 +81,17 @@ function updateCombat(room, tick) {
         }
       }
     }
-    if (impact === 'player') hit.takeDamage(shot.damage);
+    if (impact) room.impacts?.push([shot.id,
+      +(shot.x + (nextX - shot.x) * fraction).toFixed(1),
+      +(shot.y + (nextY - shot.y) * fraction).toFixed(1), shot.color]);
+    if (impact === 'player') {
+      const attacker = room.players.get(shot.ownerId);
+      const before = hit.hp, wasAlive = hit.alive;
+      hit.takeDamage(shot.damage, attacker);
+      if (before > hit.hp) room.io?.to(hit.id).emit('player_hit', { roomId: room.roomId, damage: before - hit.hp, x: hit.x, y: hit.y });
+      if (wasAlive && !hit.alive && attacker) room.io?.to(room.roomId).emit('kill_streak', {
+        roomId: room.roomId, id: attacker.id, name: attacker.name, streak: attacker.killStreak });
+    }
     if (impact === 'drone') hit.player.drones.splice(hit.player.drones.indexOf(hit.drone), 1);
     shot.x = nextX; shot.y = nextY; shot.ttl--;
     if (impact || shot.ttl <= 0 || nextX < 0 || nextY < 0 ||

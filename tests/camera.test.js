@@ -6,12 +6,15 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 function client() {
-  const source = fs.readFileSync(path.join(__dirname, '../client/game.js'), 'utf8')
+  const source = fs.readFileSync(path.join(__dirname, '../client/js/game-scene.js'), 'utf8')
     .replace('  async function bootPhaser() {', '  globalThis.testing = { C, GameScene };\n  async function bootPhaser() {');
   const context = {
     Phaser: { Scene: class {} }, performance: { now: () => 1000 }, window: {},
     document: { readyState: 'loading', addEventListener() {} },
   };
+  for (const file of ['movement', 'progression', 'player', 'network']) {
+    vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../client/js/' + file + '.js'), 'utf8'), context);
+  }
   vm.runInNewContext(source, context);
   const { C, GameScene } = context.testing;
   return { C, scene: new GameScene() };
@@ -44,11 +47,13 @@ test('camera follows the interpolated local container with positive lerp and fix
     container: () => ({
       list: [], setScale(value) { this.scale = value; return this; },
       setScrollFactor(value) { this.scrollFactor = value; return this; },
+      setDepth() { return this; },
       add(child) { this.list.push(child); },
       getByName(name) { return this.list.find(child => child.name === name); },
-      setVisible() {}, destroy() {},
+      setVisible(value) { this.visible = value; }, destroy() {},
     }),
     graphics,
+    image: () => ({ setScale() { return this; }, setVisible() { return this; }, setTexture() { return this; }, setTint() { return this; } }),
     text: () => ({ text: '', setOrigin() { return this; }, setText(value) { this.text = value; } }),
   };
   C.myId = 'local';
@@ -94,13 +99,34 @@ test('pointer uses current camera transform and absolute world coordinates, even
 
 test('frame updates interpolated entities before attaching the camera follow target', () => {
   const { C, scene } = client();
+  scene.cameras = { main: { setLerp() {} } };
   C.joined = true;
   const order = [];
-  for (const method of ['_handleInput', '_interpolateEntities', '_render', '_followCamera', '_renderThrust', '_drawMinimap']) {
+  for (const method of ['_handleInput', '_interpolateEntities', '_predictLocal', '_render', '_followCamera', '_renderThrust', '_drawMinimap']) {
     scene[method] = () => order.push(method);
   }
   scene.update(1000, 16);
   assert.ok(order.indexOf('_interpolateEntities') < order.indexOf('_render'));
   assert.ok(order.indexOf('_render') < order.indexOf('_followCamera'));
+  assert.ok(order.indexOf('_predictLocal') < order.indexOf('_render'));
   assert.ok(order.indexOf('_handleInput') < order.indexOf('_followCamera'));
+});
+
+test('keyboard prediction uses absolute targets and keeps braking after release until mouse movement', () => {
+  const { C, scene } = client();
+  C.joined = true;
+  scene._prediction = { state: { x: 1200, y: 1300 } };
+  scene._keys = Object.fromEntries(['W', 'A', 'S', 'D', 'UP', 'DOWN', 'LEFT', 'RIGHT'].map(key => [key, { isDown: false }]));
+  scene._keys.D.isDown = true;
+  scene._handleInput(1000, 16);
+  assert.equal(C.targetWorld.x, 1700);
+  assert.equal(C.targetWorld.y, 1300);
+  scene._keys.D.isDown = false;
+  scene._handleInput(1016, 16);
+  scene._handleInput(1032, 16);
+  assert.equal(C.targetWorld.x, 1200);
+  assert.equal(C.targetWorld.y, 1300);
+  scene.cameras = { main: { getWorldPoint: () => ({ x: 2400, y: 2200 }) } };
+  scene._onPointerMove({ x: 50, y: 50, manager: {} });
+  assert.equal(C.targetWorld.x, 2400);
 });

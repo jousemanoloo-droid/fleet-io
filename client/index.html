@@ -7,6 +7,7 @@
   <title>FLEET.IO · Controla tu Flota Espacial</title>
 
   <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
+  <link rel="stylesheet" href="features.css">
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
@@ -765,6 +766,10 @@
         <span class="hud-value level" id="hud-level">1</span>
       </div>
       <div class="hud-row">
+        <span class="hud-label">Siguiente nivel</span>
+        <span class="hud-value scrap" id="hud-level-progress">0 / 100 XP</span>
+      </div>
+      <div class="hud-row">
         <span class="hud-label">Integridad</span>
         <span class="hud-value hp" id="hud-hp">100/100</span>
       </div>
@@ -797,7 +802,7 @@
     </div>
 
     <div class="hud-bottom">
-      Mueve el <strong>RATÓN</strong> para dirigir tu nave · Recoge <strong>CHATARRA</strong> para ganar escoltas
+      <strong>RATÓN / WASD / FLECHAS</strong> para dirigir tu nave · Recoge <strong>CHATARRA</strong> para ganar escoltas
     </div>
 
     <!-- Minimapa global en tiempo real -->
@@ -839,7 +844,7 @@
       <div class="tips">
         <div>• Dirige tu nave nodriza hacia la <b>chatarra</b> para absorberla.</div>
         <div>• Cada 5 piezas recibes un <b>dron escolta</b> (máx. 12).</div>
-        <div>• Las escoltas disparan automáticamente a enemigos cercanos.</div>
+        <div>• Los cañones atacan automáticamente a enemigos cercanos.</div>
         <div>• El modo solitario enfrenta tu flota a <b>7 bots</b> con IA.</div>
       </div>
     </div>
@@ -875,6 +880,15 @@
   </div>
   <script src="config.js"></script>
   <script src="monetization.js"></script>
+  <script src="js/movement.js"></script>
+  <script src="js/progression.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/network.js"></script>
+  <script src="js/visuals.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/economy.js"></script>
+  <script src="js/features.js"></script>
+  <script src="js/game-scene.js"></script>
   <script src="game.js"></script>
 </body>
 </html>
