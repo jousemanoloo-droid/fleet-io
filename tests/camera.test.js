@@ -28,7 +28,7 @@ function graphics() {
 
 test('camera follows the interpolated local container with positive lerp and fixed viewport', () => {
   const { C, scene } = client();
-  let calls = 0;
+  let calls = 0, titleColorWrites = 0;
   const camera = {
     x: 0, y: 0,
     centerOn(x, y) { this.scrollX = x - 400; this.scrollY = y - 300; },
@@ -55,7 +55,7 @@ test('camera follows the interpolated local container with positive lerp and fix
     }),
     graphics,
     image: () => ({ setScale() { return this; }, setVisible() { return this; }, setTexture() { return this; }, setTint() { return this; } }),
-    text: () => ({ text: '', setColor() { return this; }, setOrigin() { return this; }, setText(value) { this.text = value; } }),
+    text: () => ({ text: '', style: { color: '' }, setColor(value) { this.style.color = value; titleColorWrites++; return this; }, setOrigin() { return this; }, setText(value) { this.text = value; } }),
   };
   C.myId = 'local';
   const meta = { hp: 100, name: 'Local' };
@@ -73,6 +73,7 @@ test('camera follows the interpolated local container with positive lerp and fix
   assert.equal(camera.target.x, 2100);
   assert.equal(camera.target.y, 1900);
   assert.equal(calls, 1, 'follow must not be restarted each frame');
+  assert.equal(titleColorWrites, 1, 'title texture must not rebuild its color every frame');
   assert.equal(camera.x, 0);
   assert.equal(camera.y, 0);
   scene._removePlayer('local');

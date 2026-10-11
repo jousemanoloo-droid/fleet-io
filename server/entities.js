@@ -213,6 +213,7 @@ class Player extends Entity {
   respawn(rewarded, players, world = WORLD, obstacles = new Map()) {
     if (!this.deathState || this.alive) return false;
     const saved = this.deathState;
+    this.contract = null; // A new life cannot resume a failed contract from the previous fleet.
     const fraction = rewarded ? 0.5 : 0;
     this.score = Math.floor(saved.score * fraction);
     this.scrapCollected = Math.floor(saved.scrap * fraction);

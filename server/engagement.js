@@ -20,7 +20,7 @@ class Engagement {
   assign(p, type = TYPES[Math.floor(Math.random() * TYPES.length)], now = Date.now()) {
     if (!p.alive || p.isBot || !TYPES.includes(type)) return null;
     const duration = type === 'NO_DAMAGE_XP' ? 40000 : 60000;
-    p.contract = { id: `${p.id}:${p.deathId}:${++this.sequence}`, type, progress: 0,
+    p.contract = { id: `${p.id}:${p.deathId}:${++this.sequence}`, deathId: p.deathId, type, progress: 0,
       goal: type === 'PARRY_KILLS' ? 2 : type === 'NO_DAMAGE_XP' ? 400 : 15,
       started: now, expires: now + duration, duration, status: 'ACTIVE', lastSent: -1 };
     this.progress(p, now); return p.contract;
@@ -28,7 +28,7 @@ class Engagement {
   view(p, now = Date.now()) {
     const c = p.contract;
     return c ? { id: c.id, type: c.type, progress: Math.floor(c.progress), goal: c.goal,
-      remaining: Math.max(0, c.expires - now), duration: c.duration, status: c.status, deathId: p.deathId } : null;
+      remaining: Math.max(0, c.expires - now), duration: c.duration, status: c.status, deathId: c.deathId } : null;
   }
   progress(p, now = Date.now()) {
     const c = p.contract;

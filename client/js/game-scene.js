@@ -1193,7 +1193,9 @@
       }
       I.render(titleLabel, title ? M('title.' + title) : '', 'phaserText');
       titleLabel.y = label.y - 19;
-      titleLabel.setColor(title === 'Untouchable' ? '#92ffff' : title === 'Space Pirate' ? '#ffb3e1' : '#ffdc7c');
+      const titleColor = title === 'Untouchable' ? '#92ffff' : title === 'Space Pirate' ? '#ffb3e1' : '#ffdc7c';
+      // Text color changes rebuild the canvas texture: never request it every frame.
+      if (titleLabel.style?.color !== titleColor) titleLabel.setColor(titleColor);
       const body = cont.getByName('body');
       const texture = 'ship-' + team + '-' + (meta.chassis || 1);
       if (body._chassisTexture !== texture) { body.setTexture(texture); body._chassisTexture = texture; }

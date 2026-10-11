@@ -40,7 +40,7 @@
       on('welcome', () => this.reset()); on('disconnect', () => this.reset());
       on('contract_progress', data => this.setContract(data));
       on('contract_complete', data => {
-        if (data.deathId !== C.deathId || this.completedId === data.id) return;
+        if (data.deathId !== C.playerStates.get(C.myId)?.deathId || this.completedId === data.id) return;
         this.completedId = data.id; this.setContract(data);
         scene._features.announce(M('contract.reward', { xp: data.xp, credits: data.credits }), '#ffda6a', 28);
         scene.cameras.main.flash(180, 30, 200, 180, false);
@@ -49,11 +49,12 @@
       on('supernova_warning', data => this.setPhase(data));
       on('supernova_frenzy', data => this.setPhase(data));
       on('supernova_frenzy_end', () => this.setPhase(null));
-      on('overdrive_activate', data => { if (data.id === C.myId && data.deathId === C.deathId) this.overdriveFX(); });
+      on('overdrive_activate', data => { if (data.id === C.myId && data.deathId === C.playerStates.get(C.myId)?.deathId) this.overdriveFX(); });
       scene.events.once('shutdown', () => this.destroy());
     }
-    setContract(data) {
-      if (data?.deathId !== this.C.deathId) return;
+    setContract(data, life = this.C.playerStates.get(this.C.myId)?.deathId) {
+      // C.deathId belongs to the death modal and is null while alive. Compare the live entity instead.
+      if (data?.deathId !== life) return;
       this.contract = data; this.contractAt = performance.now();
     }
     setPhase(data) {
@@ -64,7 +65,7 @@
     snapshot(snap) {
       this.setPhase(snap.engagement || null);
       const me = snap.p?.find(p => p.id === this.C.myId);
-      if (me?.contract) this.setContract(me.contract); else this.contract = null;
+      if (me?.contract) this.setContract(me.contract, me.deathId); else this.contract = null;
     }
     overdriveFX() {
       const now = performance.now(); if (now - this.lastOverdriveFX < 8000) return;

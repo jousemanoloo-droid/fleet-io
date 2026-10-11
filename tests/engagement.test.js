@@ -98,3 +98,17 @@ test('new state roundtrips compact snapshots and cleanup drops retained player/e
   e.update(now + 190000); e.destroy(); assert.equal(e.frenzy, null); assert.equal(p.engagement, null); assert.equal(p.contract, null);
   assert.equal(room.events.gems.size, 0);
 });
+test('client contracts use the living entity life ID, not the null death-modal ID, and reject stale lives', () => {
+  const window = { FleetI18n: require('../client/js/i18n')(require('../client/js/translations')) };
+  require('node:vm').runInNewContext(require('node:fs').readFileSync('client/js/engagement.js', 'utf8'), { window, performance: { now: () => 1000 } });
+  const e = Object.create(window.FleetEngagement.Engagement.prototype);
+  e.C = { myId: 'p', deathId: null, playerStates: new Map([['p', { deathId: 0 }]]) };
+  e.scene = {};
+  const c = { id: 'p:0:1', deathId: 0, type: 'PARRY_KILLS', status: 'ACTIVE', remaining: 60000 };
+  e.setContract(c); assert.equal(e.contract, c);
+  e.C.playerStates.set('p', { deathId: 1 }); e.setContract(c); assert.equal(e.contract, c, 'old events cannot replace current binding');
+  e.snapshot({ p: [{ id: 'p', deathId: 1, contract: null }] }); assert.equal(e.contract, null);
+  const fresh = { ...c, id: 'p:1:2', deathId: 1 };
+  e.snapshot({ p: [{ id: 'p', deathId: 1, contract: fresh }] }); assert.equal(e.contract, fresh);
+  e.setContract(c); assert.equal(e.contract, fresh);
+});
