@@ -35,7 +35,7 @@
 .language-toggle { position:fixed; top:16px; right:16px; z-index:210; min-width:100px; border-color:#00eaff; color:#baffff; box-shadow:0 0 18px #00eaff44; }
 .language-toggle:focus-visible { outline:2px solid #ff32d2; outline-offset:4px; }
 
-.contract-card { position:fixed; top:285px; left:16px; width:235px; padding:12px; display:grid; gap:7px; color:#b6faff; background:#061529db; border:1px solid #00ffff88; border-radius:10px; box-shadow:0 0 16px #00ffff22; font:12px system-ui; z-index:25; pointer-events:none; }
+.contract-card { position:fixed; top:445px; left:16px; width:235px; padding:12px; display:grid; gap:7px; color:#b6faff; background:#061529db; border:1px solid #00ffff88; border-radius:10px; box-shadow:0 0 16px #00ffff22; font:12px system-ui; z-index:25; pointer-events:none; }
 .contract-card strong { color:#ffe090; font-size:12px; letter-spacing:1px; }
 .contract-timer { justify-self:end; display:grid; place-items:center; width:52px; height:52px; border-radius:50%; color:#fff0b6; background:conic-gradient(#00ffff99 var(--timer,0deg),#132139 0); border:2px solid #29485a; font-weight:bold; }
 .contract-card[hidden],.frenzy-warning[hidden] { display:none; }
