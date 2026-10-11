@@ -166,3 +166,54 @@ test('portal origins match exact HTTPS DNS suffixes, never lookalike domains', (
   for (const origin of ['https://crazygames.com', 'https://games.crazygames.com', 'https://preview.games.crazygames.com', 'https://abc.builds.gamedistribution.com']) assert.equal(portalOrigin(origin), true, origin);
   for (const origin of ['https://evilcrazygames.com', 'https://crazygames.com.evil.test', 'http://games.crazygames.com', 'https://games.crazygames.com:444', 'https://user@games.crazygames.com', 'null', undefined]) assert.equal(portalOrigin(origin), false, String(origin));
 });
+
+test('eight-second loading watchdog finishes once and delivers its hook when registered late', async () => {
+  const timers = new Map(); const calls = []; let next = 0;
+  const window = { location: {hostname: 'games.crazygames.com'}, FleetI18n: i18n(), CrazyGames: {SDK: {
+    init: async () => {}, environment: 'crazygames', game: {
+      loadingStart() {calls.push('loadingStart');}, loadingStop() {calls.push('loadingStop');},
+      gameplayStart() {calls.push('gameplayStart');}, gameplayStop() {calls.push('gameplayStop');}
+    }, ad: {}
+  }}};
+  vm.runInNewContext(source, {window, setTimeout(fn, ms) {timers.set(++next, {fn, ms}); return next;}, clearTimeout(id) {timers.delete(id);}});
+  const m = window.AdManager; await m.ready;
+  assert.deepEqual(calls, ['loadingStart']);
+  const deadline = [...timers.values()].find(timer => timer.ms === 8000);
+  assert.ok(deadline);
+  deadline.fn();
+  let released = 0;
+  m.setGameHooks({onLoadingTimeout() {released++;}});
+  m.loadingStop(); m.gameplayStart(); m.gameplayStart(); m.gameplayStop(); m.gameplayStop();
+  assert.deepEqual(calls, ['loadingStart', 'loadingStop', 'gameplayStart', 'gameplayStop']);
+  assert.equal(released, 1);
+  assert.equal(timers.size, 0);
+});
+
+test('active gameplay cancels loading watchdog and reports loadingStop before gameplayStart', async () => {
+  const f = fixture(); const calls = [];
+  f.SDK.game.loadingStop = () => calls.push('loadingStop');
+  f.SDK.game.gameplayStart = () => calls.push('gameplayStart');
+  await f.manager.ready;
+  f.manager.gameplayStart();
+  assert.deepEqual(calls, ['loadingStop', 'gameplayStart']);
+  assert.equal(f.manager._loadingTimer, null);
+});
+
+test('optional audio loading deadline advances to menu and normal completion cancels it', () => {
+  const timers = new Map(); let next = 0;
+  const window = {FleetI18n: i18n()};
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../client/js/game-scene.js'), 'utf8'), {
+    window, Phaser: {Scene: class {}}, setTimeout(fn, ms) {timers.set(++next, {fn, ms}); return next;}, clearTimeout(id) {timers.delete(id);}
+  });
+  const boot = new window.FleetGame.BootScene();
+  let resets = 0; const scenes = []; const assets = [];
+  boot.load = {audio: key => assets.push(key), reset: () => resets++};
+  boot.events = {once() {}}; boot.scene = {start: key => scenes.push(key)};
+  boot.preload();
+  [...timers.values()][0].fn();
+  assert.equal(resets, 1); assert.deepEqual(scenes, ['UIScene']);
+  assert.deepEqual(assets, ['overdrive-activate', 'drone-launch']);
+  timers.clear(); boot.preload(); boot.create();
+  assert.equal(timers.size, 0);
+  assert.deepEqual(scenes, ['UIScene', 'UIScene']);
+});

@@ -53,6 +53,7 @@
       this._reportedGameplay = false;
       this._hooks = {};
       this._loadingRequested = true; this._loadingStarted = false; this._loadingStopped = false;
+      this._loadingTimer = null; this._loadingTimedOut = false;
       this.adsDisabled = false; this.adblock = false; this.retryAt = 0;
       this.ready = this._initialize();
     }
@@ -85,13 +86,28 @@
     }
 
     loadingStart() { this._loadingRequested = true; this._syncLoading(); }
-    loadingStop() { this._loadingRequested = false; this._syncLoading(); }
+    loadingStop() {
+      this._loadingRequested = false;
+      if (this._loadingTimer !== null) clearTimeout(this._loadingTimer);
+      this._loadingTimer = null;
+      this._syncLoading();
+    }
     _syncLoading() {
       if (!this._initialized || !this.sdk) return;
       try {
-        if (!this._loadingStarted) { this.sdk.game.loadingStart(); this._loadingStarted = true; }
-        if (!this._loadingRequested && !this._loadingStopped) { this.sdk.game.loadingStop(); this._loadingStopped = true; }
-      } catch { /* Telemetry must not block the menu. Never use SDK before init. */ }
+        if (!this._loadingStarted) {
+          this.sdk.game.loadingStart(); this._loadingStarted = true;
+          if (this._loadingRequested) this._loadingTimer = setTimeout(() => {
+            this._loadingTimedOut = true;
+            this.loadingStop();
+            this._hooks.onLoadingTimeout?.();
+          }, 8000);
+          this._loadingTimer?.unref?.(); // Does not keep Node-based SDK tests alive.
+        }
+        if (!this._loadingRequested && !this._loadingStopped) {
+          this.sdk.game.loadingStop(); this._loadingStopped = true;
+        }
+      } catch (error) { global.console?.warn('FLEET.IO: SDK loading telemetry failed', error); }
     }
     canShowAds() {
       return this._initialized && (this.mode === 'crazygames' || this.mode === 'simulation') &&
@@ -105,9 +121,16 @@
       return error || new Error('Advertisement unavailable');
     }
 
-    setGameHooks(hooks = {}) { this._hooks = hooks; }
+    setGameHooks(hooks = {}) {
+      this._hooks = hooks;
+      if (this._loadingTimedOut) this._hooks.onLoadingTimeout?.();
+    }
 
-    gameplayStart() { this._wantsGameplay = true; this._syncGameplay(); }
+    gameplayStart() {
+      // An active game is also proof that initial loading has completed.
+      this.loadingStop();
+      this._wantsGameplay = true; this._syncGameplay();
+    }
     gameplayStop() { this._wantsGameplay = false; this._syncGameplay(); }
 
     _syncGameplay() {
@@ -117,7 +140,7 @@
       try {
         if (this.sdk) this.sdk.game[playing ? 'gameplayStart' : 'gameplayStop']();
         this._reportedGameplay = playing;
-      } catch { /* Un fallo de telemetría no debe romper el juego. */ }
+      } catch (error) { global.console?.warn('FLEET.IO: SDK gameplay telemetry failed', error); }
     }
 
     _requestCrazyAd(type, onStarted) {

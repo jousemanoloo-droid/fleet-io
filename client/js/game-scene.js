@@ -71,8 +71,16 @@
     preload() {
       this.load.audio('overdrive-activate', 'assets/audio/overdrive_activate.wav');
       this.load.audio('drone-launch', 'assets/audio/drone_launch.wav');
+      // Optional audio must not trap the startup scene (network / decoding stall).
+      this._assetDeadline = setTimeout(() => {
+        this._assetDeadline = null;
+        this.load.reset();
+        this.scene.start('UIScene');
+      }, 8000);
+      this.events.once('shutdown', () => clearTimeout(this._assetDeadline));
     }
     create() {
+      clearTimeout(this._assetDeadline); this._assetDeadline = null;
       this.scene.start('UIScene');
     }
   }
@@ -153,15 +161,20 @@
     }
 
     _finishInitialLoading() {
-      if (!this._menuReady || !C.connected) return;
+      // The menu is interactive before the backend connects. A cold Render
+      // server is a connection state, not an unfinished asset load.
+      if (!this._menuReady || this._initialLoadingDone) return;
+      this._initialLoadingDone = true;
       document.getElementById('game-loading')?.classList.add('hidden');
       window.AdManager?.loadingStop?.();
+      if (!C.connected) setStatus(M('status.loadingRetry'), '');
     }
 
     _setupAdHooks() {
       let previousMute = false, previousFeatureMute = false;
       let pausedScenes = [], contexts = [], media = [];
       window.AdManager?.setGameHooks({
+        onLoadingTimeout: () => this._finishInitialLoading(),
         onAdStarted: () => {
           previousMute = this.sound?.mute || false;
           previousFeatureMute = this._features?.muted || false;
@@ -589,6 +602,8 @@
       socket.on('playerDied', (me) => {
         if (!inRoom(me)) return;
         if (me.id !== C.myId) return;
+        // Stop gameplay before visual work can fail or delay the death modal.
+        window.AdManager?.gameplayStop?.();
         const previous = C.playerStates.get(me.id);
         if (previous && previous.hp > 0) this._explodePlayer(me.id, previous);
         C.playerStates.set(me.id, me);

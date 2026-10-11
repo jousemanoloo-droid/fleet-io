@@ -286,9 +286,10 @@ test('client death modal blocks input, retries cancelled ads and waits for serve
   context.window.AdManager.loadingStop = () => loadingStops++;
   scene._menuReady = false; scene._finishInitialLoading();
   scene._menuReady = true; C.connected = false; scene._finishInitialLoading();
-  assert.equal(loadingStops, 0, 'both interactive menu and socket are required');
+  assert.equal(loadingStops, 1, 'interactive menu ends loading even while the backend reconnects');
+  assert.equal(node('game-loading').classList.contains('hidden'), true);
   C.connected = true; scene._finishInitialLoading();
-  assert.equal(loadingStops, 1);
+  assert.equal(loadingStops, 1, 'socket connect cannot duplicate loadingStop');
 
   scene._showDeath({...dead, deathId: 2});
   assert.equal(node('rewarded-respawn-btn').hidden, true, 'second death has no rewarded offer');

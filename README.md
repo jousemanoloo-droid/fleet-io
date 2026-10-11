@@ -163,8 +163,23 @@ de visualización del anuncio. Un cliente modificado puede solicitar una recompe
 `monetization.js` arranca en el head después del SDK oficial. Encola la intención
 de `loadingStart` desde el arranque y la comunica después de `SDK.init()` (nunca
 usa módulos del SDK antes de inicializar). `GameScene` termina la carga únicamente
-con recursos y menú listos y Socket.io conectado; la pantalla de espera cubre el
-menú mientras tanto. La carga y el gameplay son idempotentes.
+con recursos y menú listos. Socket.io conecta independientemente: un backend
+frío no deja abierta la carga del SDK. La pantalla de espera cubre el menú hasta
+que sus controles estén preparados. La carga y el gameplay son idempotentes.
+
+Corrección del bloqueo Loading Start: `AdManager` fuerza `loadingStop` a los ocho
+segundos desde el inicio de carga comunicado al SDK. `BootScene` tiene también
+un límite de ocho segundos para abortar audio opcional atascado y abrir el menú.
+La ruta normal cancela ambos temporizadores. Entrar a una partida confirma
+además el fin de carga antes de `gameplayStart`. El menú puede mostrar conexión
+pendiente; no inicia gameplay hasta que el servidor confirma la entrada. La
+muerte notifica `gameplayStop` antes de generar efectos visuales. Las excepciones
+de telemetría se registran en consola en lugar de ocultarse.
+
+En la revisión automática, ver solo Loading Start no demuestra por sí solo que
+falten todas las llamadas: el auditor debe usar el paquete nuevo y pulsar Play
+para observar gameplayStart, morir o volver al menú para gameplayStop. No se
+envían eventos de partida ficticios desde el menú para completar un informe.
 
 Las dos opciones de muerte comparten exactamente la clase `death-choice`, tamaño
 y estilo. La opción gratuita recibe el foco. La oferta rewarded aparece como
