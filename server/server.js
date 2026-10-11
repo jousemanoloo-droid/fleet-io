@@ -145,7 +145,7 @@ io.on('connection', (socket) => {
     const state = current(), now = Date.now();
     if (!state.room || data?.roomId !== state.room.roomId || now - lastSnapshotRequest < 500) return;
     lastSnapshotRequest = now;
-    if (state.room.loop.keyframe) socket.emit('gameState', state.room.loop.keyframe);
+    state.room.loop.requestSnapshot(socket.id);
   });
   socket.on('TRIGGER_DRONE_SWARM', (data, ack) => {
     const state = valid(data);
@@ -164,8 +164,9 @@ io.on('connection', (socket) => {
     if (!state || !RPG.activate(state.player, data?.type, state.room)) {
       reply(ack, { ok: false, error: 'Habilidad en recarga o no disponible.' }); return;
     }
-    state.room.io.to(state.room.roomId).emit('ability_used', { roomId: state.room.roomId,
-      id: state.player.id, type: data.type, x: state.player.x, y: state.player.y });
+    const effect = {roomId:state.room.roomId,id:state.player.id,type:data.type,x:state.player.x,y:state.player.y};
+    if (state.room.emitSpatial) state.room.emitSpatial('ability_used',effect);
+    else state.room.io.to(state.room.roomId).emit('ability_used',effect);
     reply(ack, { ok: true, player: state.player.toNetwork() });
   });
   socket.on('setCosmetics', data => {

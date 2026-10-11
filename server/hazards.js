@@ -13,7 +13,12 @@ class Hazards {
     this.chains=new Map(); this.supernova=null; this.nextNova=now+180000;
     this.nextPlasma=now+30000; this.sequence=0;
   }
-  emit(event,data,target) { this.room.io?.to(target||this.room.roomId).emit(event,{...data,roomId:this.room.roomId}); }
+  emit(event,data,target) {
+    if (!target && ['PLASMA_EXPLOSION','WORMHOLE_TRAVERSE'].includes(event) && this.room.emitSpatial) {
+      this.room.emitSpatial(event,data,data.x ?? data.targetX,data.y ?? data.targetY); return;
+    }
+    this.room.io?.to(target||this.room.roomId).emit(event,{...data,roomId:this.room.roomId});
+  }
   nodes() { return this._nodes; }
   portalHit(e,type,x=e.x+e.vx,y=e.y+e.vy,now=Date.now()) {
     const key=`${type}:${e.id}`, exit=this.teleportExitLocks.get(key);

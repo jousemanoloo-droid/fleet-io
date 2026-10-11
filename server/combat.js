@@ -43,12 +43,10 @@ function updateCombat(room, tick) {
   };
   const fire = (player, origin, enemy, distance, heavy = false) => {
     if (room.projectiles.size >= 240) return;
-    const flightTicks = distance / 15;
-    const angle = Math.atan2(enemy.y + enemy.vy * flightTicks - origin.y,
-      enemy.x + enemy.vx * flightTicks - origin.x);
     const id = `shot_${room.uidCounter++}`;
-    room.projectiles.set(id, { id, ownerId: player.id, x: origin.x, y: origin.y,
-      vx: Math.cos(angle) * 15, vy: Math.sin(angle) * 15,
+    const launch = require('../client/js/ballistics').launch(player, origin, enemy, origin.offset || 0, origin === player || origin.main ? player.radius : 8);
+    if (origin.main) player.fireSeq = (player.fireSeq || 0) + 1;
+    room.projectiles.set(id, { id, ownerId: player.id, ...launch, fireSeq: origin.main ? player.fireSeq : 0, sourceId: player.id, deathId: player.deathId,
       damage: RPG.damage(player) * (heavy ? 1.35 : 1), ttl: 45, color: player.color,
       piercing: player.supplyBuff === 'PIERCING_LASERS' && now < player.supplyUntil, hitIds: new Set() });
   };
@@ -64,10 +62,8 @@ function updateCombat(room, tick) {
         player.nextFireTick = due + delay;
         const chassis = RPG.tier(player.level);
         const offsets = chassis === 4 ? [-15, -5, 5, 15] : chassis >= 2 ? [-5, 5] : [0];
-        const angle = Math.atan2(enemy.y - player.y, enemy.x - player.x);
         for (const y of offsets) {
-          fire(player, { x: player.x + Math.cos(angle) * 10 - Math.sin(angle) * y,
-            y: player.y + Math.sin(angle) * 10 + Math.cos(angle) * y }, enemy, distance, chassis >= 3);
+          fire(player, { x: player.x, y: player.y, offset: y, main: true }, enemy, distance, chassis >= 3);
         }
       }
     }
@@ -116,13 +112,15 @@ function updateCombat(room, tick) {
         // exactamente -2x velocidad y 2x daño sin overflow ni bucles infinitos.
         if ((shot.reflections || 0) >= 6) { consumed=true; break; }
         shot.reflections=(shot.reflections || 0)+1;
+        shot.motionRevision=(shot.motionRevision || 0)+1;
         shot.vx = -2*shot.vx; shot.vy = -2*shot.vy;
         shot.ownerId=hit.id; shot.color=hit.color; shot.damage*=2;
         shot.parryOwnerId = now < hit.parryUntil ? hit.id : null;
         shot.hitIds.clear(); shot.piercing=hit.supplyBuff === 'PIERCING_LASERS' && now < hit.supplyUntil;
         const length=Math.hypot(shot.vx,shot.vy) || 1;
         shot.x += shot.vx/length*(hit.radius+5); shot.y += shot.vy/length*(hit.radius+5);
-        room.io?.to(room.roomId).emit('PARRY_REFLECTED',{roomId:room.roomId,id:hit.id,x:hit.x,y:hit.y});
+        if (room.emitSpatial) room.emitSpatial('PARRY_REFLECTED',{id:hit.id,x:hit.x,y:hit.y});
+        else room.io?.to(room.roomId).emit('PARRY_REFLECTED',{roomId:room.roomId,id:hit.id,x:hit.x,y:hit.y});
         break;
       }
       const attacker=room.players.get(shot.ownerId);

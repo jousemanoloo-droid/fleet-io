@@ -43,15 +43,7 @@
         g.fillStyle(0x010108).fillCircle(c, c, 45);
         g.lineStyle(2, 0x592f96, 0.8).strokeEllipse(c, c, 100, 48);
       });
-      if (!this.scene.textures.exists('escape-vignette')) {
-        const canvas = document.createElement('canvas'); canvas.width = canvas.height = 512;
-        const context = canvas.getContext('2d');
-        const gradient = context.createRadialGradient(256, 256, 90, 256, 256, 340);
-        gradient.addColorStop(0, 'rgba(180,0,15,0)'); gradient.addColorStop(1, 'rgba(240,0,30,1)');
-        context.fillStyle = gradient; context.fillRect(0, 0, 512, 512);
-        this.scene.textures.addCanvas('escape-vignette', canvas);
-      }
-      this.vignette = this.scene.add.image(0, 0, 'escape-vignette').setOrigin(0).setScrollFactor(0).setDepth(90).setAlpha(0);
+      this.vignette = this.scene._ui.lowHpVignette;
       this.ice = this.scene.add.particles(0, 0, 'xp-gem', { emitting: false, lifespan: 650,
         speed: { min: 80, max: 220 }, scale: { start: 0.7, end: 0 }, alpha: { start: 1, end: 0 },
         tint: 0x88cfff, blendMode: 'ADD', maxParticles: 160 }).setDepth(10);
@@ -182,7 +174,7 @@
         node.append(arrow, caption); document.body.append(node); this.indicators.set(id, node);
       }
       const camera = this.scene.cameras.main, width = this.scene.scale.width, height = this.scene.scale.height;
-      const sx = (target.x - camera.scrollX) * camera.zoom, sy = (target.y - camera.scrollY) * camera.zoom;
+      const sx = (target.x - camera.worldView.x) * camera.zoom, sy = (target.y - camera.worldView.y) * camera.zoom;
       const dx = sx - width / 2, dy = sy - height / 2;
       const factor = Math.min(Math.max(1, width / 2 - 60) / Math.max(1, Math.abs(dx)),
         Math.max(1, height / 2 - 65) / Math.max(1, Math.abs(dy)));
@@ -196,7 +188,6 @@
     }
     update(now, delta) {
       if (now - this.lastRewardFlush >= 100) { this.lastRewardFlush = now; this.flushRewards(); }
-      this.vignette.setDisplaySize(this.scene.scale.width, this.scene.scale.height);
       if (now - this.lastPickup > 1500) this.comboPickupCount = 0;
       if (now > this.bannerUntil) I.render(this.banner, '');
       for (const spiral of this.spirals) {
@@ -287,7 +278,7 @@
       for (const image of this.pool) image.destroy(); for (const text of this.textPool) text.destroy();
       for (const image of this.fxPool) image.destroy();
       this.pool.length = this.textPool.length = this.fxPool.length = 0;
-      this.ice.destroy(); this.gold.destroy(); this.vignette.destroy(); this.banner.remove(); this.bossBar.remove();
+      this.ice.destroy(); this.gold.destroy(); this.stopPulse(); this.banner.remove(); this.bossBar.remove();
     }
   }
   global.FleetRetention = { Retention };

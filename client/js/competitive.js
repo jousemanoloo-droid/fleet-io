@@ -38,7 +38,7 @@
     arrow(id,target,label,color) {
       let node=this.arrows.get(id); if(!node){node=document.createElement('div');node.className='world-indicator';node.append(document.createElement('span'),document.createElement('small'));document.body.append(node);this.arrows.set(id,node);}
       const cam=this.scene.cameras.main,w=this.scene.scale.width,h=this.scene.scale.height;
-      const x=(target.x-cam.scrollX)*cam.zoom,y=(target.y-cam.scrollY)*cam.zoom;
+      const x=(target.x-cam.worldView.x)*cam.zoom,y=(target.y-cam.worldView.y)*cam.zoom;
       const dx=x-w/2,dy=y-h/2,f=Math.min((w/2-65)/Math.max(1,Math.abs(dx)),(h/2-75)/Math.max(1,Math.abs(dy)));
       node.hidden=f>=1||this.C.dead||this.C.menuOpen;
       node.style.left=`${w/2+dx*f}px`;node.style.top=`${h/2+dy*f}px`;node.style.color=color;
@@ -62,7 +62,7 @@
     update(now) {
       const C=this.C,me=C.playerStates.get(C.myId); const active=C.joined&&!C.dead&&!C.menuOpen;
       this.zone.setVisible(active);this.zonePulse.setVisible(active);
-      const nemesis=me?.nemesisId&&C.playerStates.get(me.nemesisId);const pos=nemesis?.hp>0&&C.renderState.get(nemesis.id);
+      const nemesis=me?.nemesisId&&(C.playerStates.get(me.nemesisId)||C.nemesisPosition);const pos=nemesis?.hp>0&&(C.renderState.get(nemesis.id)||C.nemesisPosition);
       this.skull.setVisible(!!pos&&active&&this.scene._effectVisible(pos.x,pos.y,0));
       if(pos&&active){this.skull.setPosition(pos.x,pos.y-40);this.arrow('nemesis',pos,M('pvp.nemesis', { name: nemesis.name }),'#ff4568');}else this.removeArrow('nemesis');
       this.banner.hidden=!active;I.render(this.banner, this.leader?M('pvp.king', { name: this.leader.username, seconds: this.leader.time }):M('pvp.noKing'));

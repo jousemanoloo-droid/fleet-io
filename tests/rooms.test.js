@@ -62,7 +62,8 @@ test('rooms isolate snapshots, collection, projectiles, mutations and cleanup ti
   assert.equal(pa.upgradeOptions.length, 3);
   a.loop._broadcastState(); b.loop._broadcastState();
   const states = events.filter(event => event.name === 'gameState');
-  assert.equal(states[0].room, a.roomId);
+  assert.equal(states[0].room, 'a');
+  assert.equal(states[1].room, 'b');
   assert.equal(states[0].data.roomId, a.roomId);
   assert.deepEqual(states[0].data.p.map(p => p[0]), ['a']);
   assert.deepEqual(states[1].data.p.map(p => p[0]), ['b']);

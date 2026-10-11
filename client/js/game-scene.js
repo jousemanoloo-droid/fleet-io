@@ -70,7 +70,7 @@
     constructor() { super('BootScene'); }
     preload() { this.load.audio('overdrive-activate', 'assets/audio/overdrive_activate.wav'); }
     create() {
-      this.scene.start('GameScene');
+      this.scene.start('UIScene');
     }
   }
 
@@ -83,6 +83,7 @@
       this._decoder = new window.FleetNetwork.Decoder();
       this._resyncAt = -Infinity;
       this._stars = [];
+      this._trailQuotas = new Map();
       this._playerSprites = new Map();
       this._droneSprites = new Map();
       this._droneContainers = new Map();
@@ -106,6 +107,8 @@
     }
 
     create() {
+      this._ui = this.scene.get('UIScene');
+      this.scene.bringToTop('UIScene');
       this._pointer = this.input.activePointer;
       const camera = this.cameras.main;
       camera.setPosition(0, 0);
@@ -124,6 +127,7 @@
       this._buildWorldBounds();
       this._initMinimap();
       this._initJuice();
+      this._bullets = new window.FleetProjectiles(this, C);
       this._setupAdHooks();
       this._keys = this.input.keyboard.addKeys('W,A,S,D,UP,DOWN,LEFT,RIGHT');
 
@@ -322,6 +326,19 @@
       }
     }
 
+    _emitShipTrail(emitter, id, x, y, count, now) {
+      // All trail variants share 25 reusable timestamp slots per pilot.
+      // Their maximum lifetime is <= 400ms; hidden ships never emit.
+      if (!this._effectVisible(x, y, 0)) return;
+      let quota = this._trailQuotas.get(id);
+      if (!quota) { quota = { times: new Float64Array(25).fill(-Infinity), head: 0 }; this._trailQuotas.set(id, quota); }
+      for (let i=0; i<count; i++) {
+        if (now-quota.times[quota.head]<400) break;
+        quota.times[quota.head]=now; quota.head=(quota.head+1)%25;
+        emitter.emitParticleAt(x,y,1);
+      }
+    }
+
     _renderThrust(now) {
       if (!C.connected || now - this._lastThrustAt < THRUST_INTERVAL_MS) return;
       this._lastThrustAt = now;
@@ -334,8 +351,8 @@
         const degrees = angle * 180 / Math.PI + 180;
         this._thrust.setEmitterAngle({ min: degrees - 18, max: degrees + 18 });
         this._thrust.setParticleTint(window.FleetFeatures?.TRAIL_COLORS[meta.trail] || (id === C.myId ? 0x20dfff : 0xff406e));
-        this._thrust.emitParticleAt(
-          pos.x - Math.cos(angle) * rear, pos.y - Math.sin(angle) * rear, 1
+        this._emitShipTrail(this._thrust, id,
+          pos.x - Math.cos(angle) * rear, pos.y - Math.sin(angle) * rear, 1, now
         );
       }
     }
@@ -417,6 +434,7 @@
         C.playerStates.clear();
         C.renderState.clear();
         C._prevStates?.clear();
+        this._bullets?.reset(); this._decoder.reset(); C.nemesisPosition=null;
         for (const id of this._playerSprites.keys()) this._removePlayer(id);
         document.getElementById('death-overlay').classList.add('hidden');
         document.getElementById('mutate-overlay').classList.add('hidden');
@@ -441,7 +459,7 @@
         this._prediction = null;
         this._leaderboardAt = -Infinity;
         C._prevStates?.clear();
-        this._projectileStates.clear(); this._obstacles = [];
+        this._projectileStates.clear(); this._bullets?.reset(); this._obstacles = [];
         this._thrust?.killAll(); this._explosions?.killAll();
         C.dead = false; C.deathId = null; C.respawnBusy = false;
         document.getElementById('death-overlay').classList.add('hidden');
@@ -523,7 +541,10 @@
       });
 
       socket.on('gameState', (snap) => {
-        this._onSnapshot(snap);
+        try { this._onSnapshot(snap); } catch (error) {
+          console.warn('Discarded invalid game snapshot');
+          this._decoder.reset();
+        }
       });
 
       socket.on('playerDied', (me) => {
@@ -555,7 +576,7 @@
     }
 
     _onSnapshot(snap) {
-      if (snap.roomId && snap.roomId !== C.room?.roomId) return;
+      if (!snap || (snap.roomId && snap.roomId !== C.room?.roomId)) return;
       const decoded = this._decoder.receive(snap);
       if (!decoded) {
         const now = performance.now();
@@ -571,6 +592,7 @@
       C.tick = snap.t;
       C.kingId = snap.kingId || null;
       C.kingPosition = snap.king || null;
+      C.nemesisPosition = snap.nemesis || null;
       const players = snap.p || [];
       const scrapsSnap = snap.s || [];
       const respawnedPlayers = new Set();
@@ -579,18 +601,7 @@
       this._competitive?.snapshot(snap);
       this._hazards?.snapshot(snap);
       this._engagement?.snapshot(snap);
-      const shots = new Set();
-      for (const shot of snap.b || []) {
-        shots.add(shot.id);
-        const current = { ...shot, t: now };
-        let queue = this._projectileStates.get(shot.id) || [];
-        if (queue.length && (shot.motionRevision || 0) < (queue.at(-1).motionRevision || 0)) continue;
-        if (queue.length && (shot.motionRevision || 0) !== (queue.at(-1).motionRevision || 0)) queue=[];
-        queue.push(current);
-        if (queue.length > 5) queue.shift();
-        this._projectileStates.set(shot.id, queue);
-      }
-      for (const id of this._projectileStates.keys()) if (!shots.has(id)) this._projectileStates.delete(id);
+      this._bullets?.snapshot(snap.b || [], players.find(p => p.id === C.myId), now);
       for (const [, x, y] of snap.i || []) {
         if (this._explosions && this._effectVisible(x, y)) this._explosions.emitParticleAt(x, y, 6);
       }
@@ -600,7 +611,7 @@
       const activePlayers = new Set(players.map(p => p.id));
       for (const [id, previous] of C.playerStates) {
         if (activePlayers.has(id)) continue;
-        if (previous.hp > 0) this._explodePlayer(id, previous);
+        if (!snap.aoi && previous.hp > 0) this._explodePlayer(id, previous);
         C.playerStates.delete(id);
         C.renderState.delete(id);
         C._prevStates?.delete(id);
@@ -696,7 +707,7 @@
 
       if (now - this._leaderboardAt >= 250) {
         this._leaderboardAt = now;
-        this._updateLeaderboard(players);
+        this._updateLeaderboard(snap.leaderboard || players);
       }
 
       if (C.myId && C.playerStates.has(C.myId)) {
@@ -816,6 +827,7 @@
       this._handleInput(now, delta);
       this._interpolateEntities(now);
       this._predictLocal(delta);
+      this._bullets?.update(now, delta);
       const frozen = now < (this._hitStopUntil || 0);
       if (!frozen) this._render();
       this._cyber?.update(now, delta, frozen);
@@ -1091,34 +1103,13 @@
           this._obstacleSprites.set(o.id, sprite);
         }
         visible(sprite, o.x, o.y, o.radius + 80);
-        if (sprite.setTint) sprite.setTint(o.volatile ? 0xff3348 : o.gold ? 0xffcf50 : 0xffffff);
+        const tint = o.volatile ? 0xff3348 : o.gold ? 0xffcf50 : 0xffffff;
+        if (sprite._rockTint !== tint) { sprite.setTint(tint); sprite._rockTint=tint; }
       }
       for (const [id, sprite] of this._obstacleSprites) if (!obstacleIds.has(id)) {
         sprite.destroy(); this._obstacleSprites.delete(id);
       }
-      const now = performance.now();
-      const renderTime = now - INTERP_BUFFER_MS;
-      const emitTrails = now >= this._laserTrailAt && now >= (this._hitStopUntil || 0);
-      if (emitTrails) this._laserTrailAt = now + 35;
-      let trailBudget = 32;
-      for (const [id, queue] of this._projectileStates) {
-        const { a, b, t } = window.FleetNetwork.sample(queue, renderTime);
-        let sprite = this._laserSprites.get(id);
-        if (!sprite) {
-          sprite = this.add.image(b.x, b.y, 'fleet-laser').setDepth(5).setScale(0.65);
-          sprite.setTint(b.c).setBlendMode(Phaser.BlendModes.ADD);
-          this._laserSprites.set(id, sprite);
-        }
-        sprite.x = a.x + (b.x - a.x) * t; sprite.y = a.y + (b.y - a.y) * t;
-        sprite.rotation = b.rotation ?? Math.atan2(b.y - a.y, b.x - a.x);
-        visible(sprite, sprite.x, sprite.y);
-        if (sprite.visible && emitTrails && trailBudget-- > 0) {
-          this._laserTrail.setParticleTint(b.c); this._laserTrail.emitParticleAt(sprite.x, sprite.y, 1);
-        }
-      }
-      for (const [id, sprite] of this._laserSprites) if (!this._projectileStates.has(id)) {
-        sprite.destroy(); this._laserSprites.delete(id);
-      }
+
     }
 
     _renderScraps() {
@@ -1243,6 +1234,7 @@
     }
 
     _removePlayer(id) {
+      this._trailQuotas.delete(id);
       const cont = this._playerSprites.get(id);
       if (cont && cont === this._cameraTarget) {
         this.cameras.main.stopFollow();
@@ -1488,7 +1480,7 @@
   async function bootPhaser() {
     await window.AdManager?.ready;
     const parent = document.getElementById('game');
-    const config = window.FleetRenderer.config(parent, [BootScene, GameScene]);
+    const config = window.FleetRenderer.config(parent, [BootScene, window.FleetUIScene, GameScene]);
     window.FleetRenderer.installMetrics();
 
     const game = new Phaser.Game(config);

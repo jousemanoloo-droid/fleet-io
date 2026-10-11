@@ -35,11 +35,13 @@ class DroneSwarm {
     return true;
   }
   sync(player, launched = false) {
-    this.room.io.to(this.room.roomId).emit('DRONE_STATE_SYNC', { roomId: this.room.roomId,
+    const payload = { roomId: this.room.roomId,
       playerId: player.id, deathId: player.deathId, launched,
       cooldown: Math.max(0, (player.swarmUntil || 0) - Date.now()),
       drones: [...player.tacticalDrones, ...player.drones].map(d => ({ id: d.id, state: d.state || 'ORBIT',
-        x: d.x, y: d.y, offsetX: d.offsetX || 0, offsetY: d.offsetY || 0, attackTimer: d.attackTimer || 0 })) });
+        x: d.x, y: d.y, offsetX: d.offsetX || 0, offsetY: d.offsetY || 0, attackTimer: d.attackTimer || 0 })) };
+    if (this.room.emitSpatial) this.room.emitSpatial('DRONE_STATE_SYNC',payload,player.x,player.y);
+    else this.room.io.to(this.room.roomId).emit('DRONE_STATE_SYNC',payload);
   }
   update(dt = 1 / 30, now = Date.now()) {
     this.cells.clear();

@@ -11,6 +11,7 @@ class Engagement {
     this.frenzy = null; this.phaseKey = ''; this.nextPulse = now;
   }
   emit(event, data, player) {
+    if (!player && event === 'overdrive_activate' && this.room.emitSpatial) { this.room.emitSpatial(event,data); return; }
     this.room.io?.to(player?.id || this.room.roomId).emit(event, { ...data, roomId: this.room.roomId });
   }
   attach(p, now = Date.now()) {

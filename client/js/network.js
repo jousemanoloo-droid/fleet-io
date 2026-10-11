@@ -21,7 +21,8 @@
       n.orbitalDrones.map(d => [d.id, Math.round(d.x), Math.round(d.y)]),
       (n.tacticalDrones || []).map(d => [d.id,d.x,d.y,d.state,d.attackTimer,d.rotation]), n.swarmCooldown || 0,
       [n.overdriveRemaining || 0, n.overdriveCooldown || 0, n.revengeShieldRemaining || 0,
-        n.equippedSkin || n.skin, n.equippedTrail || n.trail, n.equippedTitle || null, n.contract || null]];
+        n.equippedSkin || n.skin, n.equippedTrail || n.trail, n.equippedTitle || null, n.contract || null],
+      [n.radius, n.fireSeq || 0, n.nextFireTick || 0, n.fireCooldown || 400]];
   }
   function player(a) {
     if (!Array.isArray(a)) return a;
@@ -49,13 +50,17 @@
       deathId: a[14], deathState: a[15] ? { score: a[15][0], scrap: a[15][1], drones: a[15][2],
         totalXp: a[15][3], survivedMs: a[15][4] } : null,
       maxSpeed: a[16], levelUpPending: !!a[17], invulnerable: !!a[18], mutations: a[19],
-      drones: a[20].map(d => ({ id: d[0], x: d[1], y: d[2], state:d[3] || 'ORBIT', attackTimer:d[4] || 0, rotation:d[5] || 0 })), inputSeq: a[21], radius: 18 };
+      drones: a[20].map(d => ({ id: d[0], x: d[1], y: d[2], state:d[3] || 'ORBIT', attackTimer:d[4] || 0, rotation:d[5] || 0 })), inputSeq: a[21], radius: a[27]?.[0] || 18, fireSeq: a[27]?.[1] || 0, nextFireTick: a[27]?.[2] || 0, fireCooldown: a[27]?.[3] || 400 };
   }
   function decode(snap) {
     if (snap.v !== 2) return snap;
+    for (const key of ['p','s','b','o']) if (!Array.isArray(snap[key]) || snap[key].length>2000) throw new Error('Invalid collection');
+    for (const key of ['p','s','b']) for (const row of snap[key]) {
+      if (!Array.isArray(row) || typeof row[0] !== 'string' || !Number.isFinite(row[1]) || !Number.isFinite(row[2])) throw new Error('Invalid entity');
+    }
     return { ...snap, p: snap.p.map(player),
       s: snap.s.map(a => ({ id: a[0], x: a[1], y: a[2], v: a[3], c: a[4], s: a[5] })),
-      b: snap.b.map(a => ({ id: a[0], x: a[1], y: a[2], c: a[3], rotation: a[4], motionRevision:a[5] || 0 })) };
+      b: snap.b.map(a => ({ id: a[0], x: a[1], y: a[2], c: a[3], rotation: a[4], motionRevision:a[5] || 0, ownerId:a[6], vx:a[7] || 0, vy:a[8] || 0, fireSeq:a[9], deathId:a[10], sourceId:a[11] || a[6] })) };
   }
   // Deltas relative to a reliable immutable keyframe: losing a delta is harmless.
   const COLLECTIONS = ['p', 's', 'b', 'o'];
@@ -88,9 +93,14 @@
     constructor() { this.reset(); }
     reset() { this.base = null; this.roomId = null; }
     receive(packet) {
+      try { return this._receive(packet); } catch (error) { this.reset(); return null; }
+    }
+    _receive(packet) {
+      if (!packet || !Number.isFinite(packet.t) || !Array.isArray(packet.p)) return null;
       if (packet.v !== 3) {
+        const decoded = decode(packet);
         if (packet.keyframe !== undefined) { this.base = packet; this.roomId = packet.roomId; }
-        return decode(packet);
+        return decoded;
       }
       if (!this.base || this.roomId !== packet.roomId || this.base.t !== packet.base) return null;
       const full = { ...packet, v: 2 };

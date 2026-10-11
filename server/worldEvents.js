@@ -14,6 +14,9 @@ class WorldEvents {
     this.nextBoss = epoch + (Math.floor((now - epoch) / 600000) + 1) * 600000;
   }
   emit(event, data, playerId) {
+    if (!playerId && ['death_fx','asteroid_destroyed'].includes(event) && this.room.emitSpatial) {
+      this.room.emitSpatial(event,data); return;
+    }
     this.room.io?.to(playerId || this.room.roomId).emit(event, { ...data, roomId: this.room.roomId });
   }
   id(kind) { return kind === 'reward' ? `${this.room.roomId}:${kind}:${++this.sequence}` : `${kind}:${++this.sequence}`; }

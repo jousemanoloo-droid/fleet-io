@@ -753,3 +753,15 @@ la zona una sola vez y actualiza el HUD a 10 Hz. Al cambiar de sala o cerrar la 
 limpia listeners, objetos y partículas. Los textos están en el diccionario EN/ES.
 
 Comprobaciones del nuevo sistema: `node --test tests/engagement.test.js`.
+
+
+### Engine stability: projectiles, FOV and dense combat
+
+- Shared `client/js/ballistics.js` adds ship inertia (pixels per 30 Hz tick) and launches outside each chassis hitbox plus 15px. Swept authoritative collisions still prevent tunneling; reflections and portals change the projectile motion revision.
+- `client/js/projectiles.js` preallocates 400 Arcade sprites. Bodies stay disabled because rendering must not apply a second collision simulation. Visuals are recycled without creating/destroying sprites during combat. Automatic weapons predict locally; owner/life/fire sequence adopts the authoritative ID, errors over 20px ease back, rejected/unconfirmed predictions expire after 350ms. Damage remains server-only.
+- `UIScene` has its own zoom-1 camera above `GameScene`. It owns the low-HP/Overdrive vignette and screen announcements; resize and camera zoom events resize the overlay. Existing HTML HUD/minimap remains in the independent browser overlay. Arrow projection uses the visible world rectangle at the current FOV.
+- Shared trail emitters only emit for visible ships, at intervals of at least 40ms. A reusable 25-slot timestamp quota per ship caps combined propulsion, skin and slingshot trails over their maximum 400ms lifetime. Off-screen ships produce no new particles; existing particles fade within their short lifespan. Bloom/chromatic effects suspend below a measured 50 FPS and can recover after 20 seconds above 58 FPS.
+- `server/interest.js` indexes 1000px sectors. Each human socket receives its own 3x3 neighborhood of ships, lasers, scrap, obstacles, gems and impacts at 30Hz. Sector transitions and resync requests send a reliable immutable keyframe; deltas reference that baseline. Small global rankings, event/leader/core/pod/bounty markers and the pilot's nemesis marker remain available for HUD navigation. Leaving an AOI is not treated as ship destruction. Disconnected baselines and trail quotas are cleaned up.
+- Defensive snapshot decoding rejects malformed packets and requests a new reliable baseline. CrazyGames lifecycle/ad hooks and EN/ES localization are preserved.
+
+Validation: `node --test tests/engine.test.js` exercises fast/fused muzzle geometry, shot metadata, AOI transitions, invalid packets, 400-slot recycling, immediate prediction and overlay zoom/resize cleanup. These changes bound object/particle work; stable 60 FPS on every low-end GPU cannot be guaranteed without measurements on those devices.

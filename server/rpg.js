@@ -77,6 +77,7 @@ function activate(p, type, room, now = Date.now()) {
   return true;
 }
 function movement(p, now = Date.now()) {
+  p.radius = [0,18,26,34,44][tier(p.level)];
   p.dashing = now < p.dashUntil;
   p.slowed = now < p.empUntil;
   p.boosted = now < p.dailyBoostUntil;
@@ -106,6 +107,7 @@ function network(p, now = Date.now()) {
     overdriveCooldown: Math.max(0, (p.overdriveReadyAt || 0) - now),
     revengeShieldRemaining: Math.max(0, (p.revengeShieldUntil || 0) - now),
     contract: p.engagement?.view(p, now) || null,
+    fireSeq: p.fireSeq || 0, nextFireTick: p.nextFireTick || 0, fireCooldown: cooldown(p),
     cooldowns: Object.fromEntries(Object.entries(p.abilityReady).map(([key, value]) => [key, Math.max(0, value - now)])),
     abilityDurations: { dash: Math.max(0, p.dashUntil - now), shield: Math.max(0, p.shieldUntil - now),
       emp: Math.max(0, p.empUntil - now), boost: Math.max(0, p.dailyBoostUntil - now) },

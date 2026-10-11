@@ -257,7 +257,7 @@
       }
     }
     announce(message, color, size, bottomColor) {
-      const scene = this.scene;
+      const scene = this.scene._ui || this.scene;
       const text = scene.add.text(scene.scale.width / 2, scene.scale.height * 0.32, String(message), {
         fontFamily: 'system-ui', fontStyle: 'bold', fontSize: size + 'px', color, stroke: '#050918', strokeThickness: 6,
       }).setOrigin(0.5).setScrollFactor(0).setDepth(100).setScale(0.3);

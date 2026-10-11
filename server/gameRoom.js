@@ -37,6 +37,15 @@ class GameRoom {
     }
   }
 
+  emitSpatial(event, data, x = data.x, y = data.y) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const cx=Math.floor(x/1000), cy=Math.floor(y/1000);
+    for (const p of this.players.values()) if (!p.isBot &&
+      Math.abs(Math.floor(p.x/1000)-cx)<=1 && Math.abs(Math.floor(p.y/1000)-cy)<=1) {
+      this.io?.to(p.id).emit(event,{...data,roomId:this.roomId});
+    }
+  }
+
   get humanCount() {
     let count = 0;
     for (const player of this.players.values()) if (!player.isBot) count++;

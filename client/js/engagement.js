@@ -98,12 +98,12 @@
           count++;
           if (p.overdriveRemaining > 0) {
             this.electric.setEmitterAngle((pos.rotation || 0) * 180 / Math.PI + 180);
-            this.electric.emitParticleAt(pos.x - Math.cos(pos.rotation || 0) * 24, pos.y - Math.sin(pos.rotation || 0) * 24, 2);
+            this.scene._emitShipTrail(this.electric, id, pos.x - Math.cos(pos.rotation || 0) * 24, pos.y - Math.sin(pos.rotation || 0) * 24, 1, now);
           }
           const trail = this.skinTrails.get(p.equippedSkin || p.skin);
           if (trail && Math.hypot(p.vx, p.vy) > .3) {
             trail.setEmitterAngle((pos.rotation || 0) * 180 / Math.PI + 180);
-            trail.emitParticleAt(pos.x - Math.cos(pos.rotation || 0) * 26, pos.y - Math.sin(pos.rotation || 0) * 26, 1);
+            this.scene._emitShipTrail(trail, id, pos.x - Math.cos(pos.rotation || 0) * 26, pos.y - Math.sin(pos.rotation || 0) * 26, 1, now);
           }
           if (visible && phase.phase === 'ACTIVE' && Math.hypot(pos.x - phase.x, pos.y - phase.y) < phase.radius) {
             const a = Math.random() * Math.PI * 2, x = pos.x + Math.cos(a) * 65, y = pos.y + Math.sin(a) * 65;

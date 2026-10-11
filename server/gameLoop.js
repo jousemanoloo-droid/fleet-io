@@ -8,6 +8,7 @@ const TICK_INTERVAL = 1000 / TICK_RATE;
 const { updateCombat, resolveObstacles } = require('./combat');
 const Network = require('../client/js/network');
 const RPG = require('./rpg');
+const { InterestGrid, SIZE } = require('./interest');
 const { WorldEvents } = require('./worldEvents');
 
 class GameLoop {
@@ -22,6 +23,7 @@ class GameLoop {
     this.tickCount = 0;
     this._interval = null;
     this.keyframe = null;
+    this.clientFrames = new Map();
     this._lastScrapSpawn = 0;
     gameState.swarm ||= new (require('./swarm').DroneSwarm)(gameState);
     gameState.events ||= new WorldEvents(gameState);
@@ -38,6 +40,7 @@ class GameLoop {
 
   stop() {
     this.running = false;
+    this.clientFrames.clear();
     if (this._interval) {
       clearInterval(this._interval);
       this._interval = null;
@@ -220,6 +223,8 @@ class GameLoop {
     }
   }
 
+  requestSnapshot(id) { this.clientFrames.delete(id); }
+
   _broadcastState() {
     const king = Array.from(this.state.players.values()).filter(p => p.alive).sort((a, b) => b.score - a.score)[0];
     const playersPayload = Array.from(this.state.players.values(), Network.packPlayer);
@@ -234,7 +239,7 @@ class GameLoop {
       p: playersPayload,
       s: scrapsPayload,
       b: Array.from(this.state.projectiles.values(), b =>
-        [b.id, +b.x.toFixed(1), +b.y.toFixed(1), b.color, +Math.atan2(b.vy, b.vx).toFixed(4), b.motionRevision || 0]),
+        [b.id, +b.x.toFixed(1), +b.y.toFixed(1), b.color, +Math.atan2(b.vy, b.vx).toFixed(4), b.motionRevision || 0, b.ownerId, +b.vx.toFixed(3), +b.vy.toFixed(3), b.fireSeq || 0, b.deathId || 0, b.sourceId || b.ownerId]),
       o: Array.from(this.state.obstacles.values()),
       i: this.state.impacts || [],
       kingId: king?.id || null,
@@ -245,14 +250,40 @@ class GameLoop {
       engagement: this.state.engagement.snapshot(),
     };
 
-    if (!this.keyframe || this.tickCount - this.keyframe.t >= 30) {
-      snapshot.keyframe = snapshot.t;
-      // Freeze the baseline by copying mutable RPG arrays and world objects once/s.
-      this.keyframe = JSON.parse(JSON.stringify(snapshot));
-      this.io.to(this.state.roomId).emit('gameState', this.keyframe);
-    } else {
-      this.io.to(this.state.roomId).volatile.emit('gameState', Network.delta(this.keyframe, snapshot));
+    // Pack once, index once. Only small global rankings/event markers cross AOI.
+    snapshot.leaderboard = [...this.state.players.values()].sort((a,b) => b.score-a.score).slice(0,10)
+      .map(p => ({id:p.id,name:p.name,score:p.score,titles:p.titles}));
+    const grids = {
+      p: new InterestGrid(snapshot.p, p => [p[1],p[2]]),
+      s: new InterestGrid(snapshot.s, p => [p[1],p[2]]),
+      b: new InterestGrid(snapshot.b, p => [p[1],p[2]]),
+      o: new InterestGrid(snapshot.o),
+      i: new InterestGrid(snapshot.i, p => [p[1],p[2]]),
+      g: new InterestGrid(snapshot.w.g || [], p => [p[1],p[2]]),
+    };
+    const sectorPackets = new Map(), humans = new Set();
+    for (const pilot of this.state.players.values()) {
+      if (pilot.isBot) continue;
+      humans.add(pilot.id);
+      const sector = `${Math.floor(pilot.x/SIZE)}:${Math.floor(pilot.y/SIZE)}`;
+      let current = sectorPackets.get(sector);
+      if (!current) {
+        current = {...snapshot, aoi:sector, w:{...snapshot.w,g:grids.g.query(pilot.x,pilot.y)}};
+        for (const key of ['p','s','b','o','i']) current[key]=grids[key].query(pilot.x,pilot.y);
+        sectorPackets.set(sector,current);
+      }
+      const rival = this.state.players.get(pilot.nemesisId);
+      current = {...current, nemesis: rival?.alive ? {id:rival.id,name:rival.name,x:rival.x,y:rival.y,hp:rival.hp} : null};
+      const previous = this.clientFrames.get(pilot.id);
+      // A reliable fresh baseline on each sector transition avoids delta holes.
+      if (!previous || previous.aoi !== sector || current.t-previous.t >= 30) {
+        const baseline = JSON.parse(JSON.stringify({...current,keyframe:current.t}));
+        this.clientFrames.set(pilot.id,baseline);
+        this.io.to(pilot.id).emit('gameState',baseline);
+      } else this.io.to(pilot.id).volatile.emit('gameState',Network.delta(previous,current));
     }
+    for (const id of this.clientFrames.keys()) if (!humans.has(id)) this.clientFrames.delete(id);
+
   }
 }
 

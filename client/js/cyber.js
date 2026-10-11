@@ -90,6 +90,7 @@
       this.scene.cameras.main.shake(150, 0.015);
     }
     update(now, delta, frozen) {
+      this.adaptQuality(now, delta);
       const camera = this.scene.cameras.main, C = this.C;
       this.scene.tweens.timeScale = frozen ? 0 : 1;
       for (const object of this.scene.children.list) if (object.type === 'ParticleEmitter') object.timeScale = frozen ? 0 : 1;
@@ -102,12 +103,13 @@
         this.targetZoom = 1.2 - 0.45 * Math.min(1, Math.max(0, count - 1) / 15);
       }
       if (!frozen) camera.setZoom(camera.zoom + (this.targetZoom - camera.zoom) * (1 - Math.exp(-Math.min(delta, 100) / 300)));
+      this.scene.game?.events.emit('camera_zoom_updated', camera.zoom);
       this.grid.setVisible(!C.dead && !C.menuOpen).setPosition(camera.width / 2, camera.height / 2)
         .setSize(camera.width / camera.zoom, camera.height / camera.zoom);
       this.grid.tilePositionX = camera.scrollX * 0.15;
       this.grid.tilePositionY = camera.scrollY * 0.12;
       if (!frozen && now >= this.emitAt) {
-        this.emitAt = now + 32;
+        this.emitAt = now + 40;
         let budget = 32;
         for (const p of C.renderState.values()) for (const d of p.drones) {
           if (d.state === 'ATTACK' && budget > 0 && this.scene._effectVisible(d.x, d.y)) {
@@ -123,6 +125,22 @@
       this.button.disabled = this.pending || remaining > 0;
       this.button.style.setProperty('--cooldown', `${remaining / 8000 * 360}deg`);
       I.render(this.button, remaining > 0 ? M('ability.swarmCooldown', { seconds: Math.ceil(remaining / 1000) }) : M('ability.swarm'));
+    }
+    adaptQuality(now, delta) {
+      if (!this.scene.game || document.hidden || delta>150) return;
+      this.qualityFrames=(this.qualityFrames||0)+1; this.qualityTime=(this.qualityTime||0)+delta;
+      if (this.qualityTime<2000) return;
+      const fps=this.qualityFrames*1000/this.qualityTime;
+      this.qualityFrames=this.qualityTime=0;
+      const camera=this.scene.cameras.main;
+      if (fps<50 && !this.reducedFX) {
+        camera.postFX.remove(this.bloom); camera.removePostPipeline('FleetChromatic');
+        this.reducedFX=true; this.qualityRetry=now+20000;
+      } else if (this.reducedFX && fps>=58 && now>=this.qualityRetry) {
+        this.bloom=camera.postFX.addBloom(0xffffff,1,1,1.2,1.35,2);
+        camera.setPostPipeline('FleetChromatic'); this.chromatic=camera.getPostPipeline('FleetChromatic');
+        this.reducedFX=false;
+      }
     }
     idle() { this.button.hidden = true; this.grid.setVisible(false); this.scene.tweens.timeScale = 1; this.chromatic.amount = 0;
       for (const object of this.scene.children.list) if (object.type === 'ParticleEmitter') object.timeScale = 1; }

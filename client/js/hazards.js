@@ -102,9 +102,9 @@
         const pos=t.type==='player'?this.C.renderState.get(t.id):this.scene._laserSprites.get(t.id);
         if(now>=t.until||(t.seen&&!pos)){this.trails.delete(key);continue;}
         if(pos)t.seen=true;
-        if(pos&&active&&now-this.lastTrail>=30&&this.scene._effectVisible(pos.x,pos.y))this.trail.emitParticleAt(pos.x,pos.y,2);
+        if(pos&&active&&now-this.lastTrail>=40&&this.scene._effectVisible(pos.x,pos.y))(t.type==='player' ? this.scene._emitShipTrail(this.trail,t.id,pos.x,pos.y,1,now) : this.trail.emitParticleAt(pos.x,pos.y,1));
       }
-      if(now-this.lastTrail>=30)this.lastTrail=now;
+      if(now-this.lastTrail>=40)this.lastTrail=now;
       const nova=this.data.supernova,valid=nova&&nova.remaining-(now-this.receivedAt)>0;
       const visible=active&&valid&&this.scene._effectVisible(nova.x,nova.y,500);
       this.warning.setVisible(!!visible);
