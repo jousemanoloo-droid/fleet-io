@@ -42,6 +42,11 @@ test('production server respects PORT, serves client and restricts remote handsh
   assert.equal(allowed.status, 200);
   assert.equal(allowed.headers.get('access-control-allow-origin'), 'https://fleet.example');
   assert.ok((await allowed.text()).startsWith('0{"sid":'));
+  for (const origin of ['https://fleet-io-d45d5.web.app', 'https://fleet-io-d45d5.firebaseapp.com']) {
+    const publishedClient = await fetch(endpoint, { headers: { Origin: origin } });
+    assert.equal(publishedClient.status, 200);
+    assert.equal(publishedClient.headers.get('access-control-allow-origin'), origin);
+  }
   const rejected = await fetch(endpoint, { headers: { Origin: 'https://untrusted.example' } });
   assert.equal(rejected.status, 403);
   const sameOrigin = await fetch(endpoint, { headers: { Origin: base } });

@@ -681,3 +681,5 @@ los drones, cooldown, daño único, muerte/resurrección, pérdida de paquetes y
 `npm run preview` abre el cliente con un backend local sin cambiar `client/config.js`.
 La medida de FPS del modo `?debug=1` es una observación local, no una garantía para
 cualquier GPU, móvil, conexión o cantidad de jugadores en producción.
+
+Los dominios publicados https://fleet-io-d45d5.web.app y https://fleet-io-d45d5.firebaseapp.com están autorizados explícitamente en producción. CLIENT_ORIGINS añade otros orígenes exactos; no se utiliza un comodín público.

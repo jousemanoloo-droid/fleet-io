@@ -14,9 +14,16 @@ const { TITLES, EFFECTS } = require('./worldEvents');
 
 const PORT = process.env.PORT || 3000;
 const CLIENT_DIR = path.join(__dirname, '..', 'client');
-const CLIENT_ORIGINS = (process.env.CLIENT_ORIGINS || '')
-  .split(',').map(origin => origin.trim()).filter(Boolean);
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+// The published Firebase client must be able to reach the separate Render backend.
+// Keep an exact allowlist; CLIENT_ORIGINS can add other hosted frontends.
+const CLIENT_ORIGINS = [...new Set([
+  ...(IS_PRODUCTION ? [
+    'https://fleet-io-d45d5.web.app',
+    'https://fleet-io-d45d5.firebaseapp.com',
+  ] : []),
+  ...(process.env.CLIENT_ORIGINS || '').split(',').map(origin => origin.trim()).filter(Boolean),
+])];
 
 // ----------------------------------------------------------------------------
 // Configuración de Express + HTTP + Socket.io
