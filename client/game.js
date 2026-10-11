@@ -6,6 +6,8 @@
     console.error('Unable to start FLEET.IO:', error);
     const status = document.getElementById('status');
     if (status) I.render(status, M('status.webgl'));
+    const loadingMessage = document.querySelector('#game-loading span');
+    if (loadingMessage) I.render(loadingMessage, M('status.webgl'));
   });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
   else boot();

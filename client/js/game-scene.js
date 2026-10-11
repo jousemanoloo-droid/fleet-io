@@ -68,7 +68,10 @@
   // ------------------------------------------------------------------
   class BootScene extends Phaser.Scene {
     constructor() { super('BootScene'); }
-    preload() { this.load.audio('overdrive-activate', 'assets/audio/overdrive_activate.wav'); }
+    preload() {
+      this.load.audio('overdrive-activate', 'assets/audio/overdrive_activate.wav');
+      this.load.audio('drone-launch', 'assets/audio/drone_launch.wav');
+    }
     create() {
       this.scene.start('UIScene');
     }
@@ -146,36 +149,50 @@
         this._updateLeaderboard(C.leaderboard || []);
       });
       this.events.once('shutdown', unsubscribe);
+      this._menuReady=true; this._finishInitialLoading();
+    }
+
+    _finishInitialLoading() {
+      if (!this._menuReady || !C.connected) return;
+      document.getElementById('game-loading')?.classList.add('hidden');
+      window.AdManager?.loadingStop?.();
     }
 
     _setupAdHooks() {
-      let previousMute = false, pausedByAd = false;
+      let previousMute = false, previousFeatureMute = false;
+      let pausedScenes = [], contexts = [], media = [];
       window.AdManager?.setGameHooks({
         onAdStarted: () => {
           previousMute = this.sound?.mute || false;
+          previousFeatureMute = this._features?.muted || false;
+          contexts = [...new Set([this.sound?.context, this._features?.audio].filter(ctx => ctx?.state === 'running'))];
+          media = [...new Set([this._cyber?.audio, ...document.querySelectorAll('audio,video')]
+            .filter(node => node && !node.paused && !node.ended))];
           if (this.sound) this.sound.mute = true;
-          this._features?.setMuted(true);
-          this._cyber?.audio.pause();
-          pausedByAd = this.scene.isActive();
-          if (pausedByAd) this.scene.pause();
+          if (this._features) this._features.muted = true;
+          for (const ctx of contexts) { try { ctx.suspend()?.catch?.(() => {}); } catch {} }
+          for (const node of media) node.pause();
+          pausedScenes = ['GameScene','UIScene'].filter(key => this.scene.isActive(key));
+          for (const key of pausedScenes) this.scene.pause(key);
         },
         onAdEnded: () => {
           if (this.sound) this.sound.mute = previousMute;
-          this._features?.setMuted(previousMute);
-          if (pausedByAd) this.scene.resume();
-          pausedByAd = false;
-          syncGameplayTracking();
+          if (this._features) this._features.muted = previousFeatureMute;
+          for (const ctx of contexts) { try { ctx.resume()?.catch?.(() => {}); } catch {} }
+          for (const node of media) { try { node.play()?.catch?.(() => {}); } catch {} }
+          contexts = []; media = [];
+          for (const key of pausedScenes) this.scene.resume(key);
+          pausedScenes = []; syncGameplayTracking();
         },
       });
       this.events.once('shutdown', () => {
-        window.AdManager?.setGameHooks({});
-        window.AdManager?.gameplayStop();
+        window.AdManager?.setGameHooks({}); window.AdManager?.gameplayStop();
       });
     }
 
     _setupDeathUI() {
       document.getElementById('rewarded-respawn-btn').onclick = () => {
-        if (!C.dead || C.respawnBusy || !C.connected) return;
+        if (!C.dead || C.respawnBusy || !C.connected || !C.rewardOffer || !window.AdManager.canShowAds()) return;
         const deathId = C.deathId;
         const playerId = C.myId;
         const roomId = C.room?.roomId;
@@ -188,13 +205,27 @@
         }, () => {
           if (C.dead && C.deathId === deathId && C.myId === playerId && C.room?.roomId === roomId) {
             this._setRespawnBusy(false, M('ad.failure'));
+            this._updateRewardAvailability();
           }
         });
       };
-      document.getElementById('restart-btn').onclick = () => {
+      document.getElementById('restart-btn').onclick = async () => {
         if (!C.dead || C.respawnBusy || !C.connected) return;
-        this._requestRespawn(false, C.deathId);
+        const life=C.deathId, room=C.room?.roomId, pilot=C.myId;
+        this._setRespawnBusy(true, M('status.restoring'));
+        // Never combine an offered rewarded revive and a midgame at the same death.
+        if (!C.rewardOfferWasShown && window.AdManager?.canShowAds()) {
+          await window.AdManager.showInterstitialAd();
+        }
+        if (C.dead && C.deathId===life && C.room?.roomId===room && C.myId===pilot) this._requestRespawn(false,life);
       };
+    }
+
+    _updateRewardAvailability() {
+      if (!window.AdManager?.canShowAds()) C.rewardOffer = false;
+      const button=document.getElementById('rewarded-respawn-btn');
+      button.hidden=!C.rewardOffer;
+      button.disabled=!C.rewardOffer || C.respawnBusy || !C.connected;
     }
 
     _setRespawnBusy(busy, message = '') {
@@ -202,6 +233,7 @@
       for (const id of ['rewarded-respawn-btn', 'restart-btn']) {
         document.getElementById(id).disabled = busy || !C.connected;
       }
+      this._updateRewardAvailability();
       I.render(document.getElementById('death-status'), message);
     }
 
@@ -210,14 +242,18 @@
       if (C.dead && C.deathId === me.deathId) return;
       C.dead = true;
       C.deathId = me.deathId;
+      C._deathCount=(C._deathCount||0)+1;
+      C.rewardOffer = C._deathCount%2===1 && Date.now()>=(C._nextRewardOffer||0) && !!window.AdManager?.canShowAds();
+      C.rewardOfferWasShown=C.rewardOffer;
+      if (C.rewardOffer) C._nextRewardOffer=Date.now()+120000;
       C.mutationsOpen = false;
       document.getElementById('mutate-overlay').classList.add('hidden');
       const saved = me.deathState || { score: me.score, scrap: me.scrap, drones: me.drones.length };
       I.render(document.getElementById('death-summary'), M('death.summary', saved));
       document.getElementById('death-overlay').classList.remove('hidden');
-      this._setRespawnBusy(false, window.AdManager?.mode === 'simulation' ? M('ad.demo') : '');
+      this._setRespawnBusy(false, C.rewardOffer ? (window.AdManager?.mode === 'simulation' ? M('ad.demo') : '') : M('ad.unavailable'));
       this._features?.died(me);
-      document.getElementById('rewarded-respawn-btn').focus();
+      document.getElementById('restart-btn').focus();
     }
 
     _requestRespawn(rewarded, deathId) {
@@ -413,6 +449,7 @@
       socket.on('connect', () => {
         C.connected = true;
         setStatus(M('status.connected'), '');
+        this._finishInitialLoading();
       });
 
       socket.on('disconnect', () => {
@@ -445,6 +482,8 @@
 
       socket.on('connect_error', () => {
         setStatus(M('status.error'), 'error');
+        const loading=document.querySelector('#game-loading span');
+        if (loading) I.render(loading,M('status.loadingRetry'));
       });
 
       socket.on('welcome', (data) => {

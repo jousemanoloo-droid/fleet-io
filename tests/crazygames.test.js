@@ -7,15 +7,15 @@ const vm = require('node:vm');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../client/monetization.js'), 'utf8');
 
-function fixture(environment = 'crazygames', init = async () => {}) {
+function fixture(environment = 'crazygames', init = async () => {}, hostname = 'localhost') {
   const calls = [];
   const requests = [];
   const SDK = {
     environment, init,
-    game: { gameplayStart: () => calls.push('start'), gameplayStop: () => calls.push('stop') },
+    game: { loadingStart() {}, loadingStop() {}, gameplayStart: () => calls.push('start'), gameplayStop: () => calls.push('stop') },
     ad: { requestAd(type, callbacks) { requests.push({ type, callbacks }); return Promise.resolve(); } },
   };
-  const window = { FleetI18n: i18n(), CrazyGames: { SDK } };
+  const window = { location: {hostname}, FleetI18n: i18n(), CrazyGames: { SDK } };
   vm.runInNewContext(source, { window, setTimeout, clearTimeout });
   return { manager: window.AdManager, SDK, calls, requests };
 }
@@ -96,10 +96,73 @@ test('local, disabled and absent SDK use simulation; portal initialization failu
     manager.gameplayStart();
     assert.deepEqual(calls, []);
   }
-  const window = { FleetI18n: i18n() };
+  const window = { location:{hostname:'localhost'}, FleetI18n: i18n() };
   vm.runInNewContext(source, { window });
   assert.equal(await window.AdManager.ready, 'simulation');
-  const { manager } = fixture('crazygames', async () => { throw Error('Initialization failed'); });
+  const { manager } = fixture('crazygames', async () => { throw Error('Initialization failed'); }, 'games.crazygames.com');
   assert.equal(await manager.ready, 'unavailable');
   assert.equal(await manager.showRewardedAd(() => assert.fail('must not simulate portal rewards')), false);
+});
+
+test('loading telemetry waits for init, starts before stop and is sent once', async () => {
+  let resolveInit;
+  const f = fixture('crazygames', () => new Promise(resolve => { resolveInit = resolve; }));
+  const loading = [];
+  f.SDK.game.loadingStart = () => loading.push('start');
+  f.SDK.game.loadingStop = () => loading.push('stop');
+  f.manager.loadingStart(); f.manager.loadingStop();
+  assert.deepEqual(loading, []);
+  resolveInit(); await f.manager.ready;
+  f.manager.loadingStop(); f.manager.loadingStart(); f.manager.loadingStop();
+  assert.deepEqual(loading, ['start', 'stop']);
+});
+
+test('no public hostname or iframe can activate simulated rewards', async () => {
+  for (const hostname of ['games.crazygames.com', 'abc.builds.gamedistribution.com', 'fleet-io-d45d5.web.app']) {
+    for (const environment of ['local', 'disabled']) {
+      const {manager} = fixture(environment, async () => {}, hostname);
+      assert.equal(await manager.ready, 'unavailable');
+      assert.equal(manager.canShowAds(), false);
+      assert.throws(() => manager.setAdapter({showRewardedAd() {}, showInterstitialAd() {}}), /local-only/);
+      assert.equal(await manager.showRewardedAd(() => assert.fail('fake public reward')), false);
+    }
+    const window = { location: {hostname}, self: {}, top: {}, FleetI18n: i18n() };
+    vm.runInNewContext(source, {window});
+    assert.equal(await window.AdManager.ready, 'unavailable');
+  }
+});
+
+test('Basic Launch, adblock and inventory errors disable offers without granting rewards', async () => {
+  for (const code of ['adsDisabledBasicLaunch', 'adblock', 'unfilled', 'adCooldown']) {
+    const {manager, requests} = fixture(); await manager.ready;
+    const pending = manager.showRewardedAd(() => assert.fail('error must not grant reward'));
+    await new Promise(resolve => setImmediate(resolve));
+    requests[0].callbacks.adError({code, message: 'Unavailable'});
+    assert.equal(await pending, false);
+    assert.equal(manager.canShowAds(), false);
+    assert.equal(manager.busy, false);
+    if (code === 'unfilled' || code === 'adCooldown') assert.ok(manager.retryAt > Date.now());
+  }
+});
+
+test('a missing callback times out, releases the lock and ignores late completion', async () => {
+  const timers = new Map(); let next = 0, callbacks;
+  const window = { location: {hostname: 'games.crazygames.com'}, FleetI18n: i18n(), CrazyGames: {SDK: {
+    init: async () => {}, environment: 'crazygames', game: {loadingStart() {}, gameplayStop() {}},
+    ad: {requestAd(type, cb) {callbacks = cb;}}
+  }}};
+  vm.runInNewContext(source, {window, setTimeout(fn, ms) {timers.set(++next, {fn, ms}); return next;}, clearTimeout(id) {timers.delete(id);}});
+  await window.AdManager.ready;
+  const pending = window.AdManager.showRewardedAd(() => assert.fail('timed out request must not reward'));
+  await new Promise(resolve => setImmediate(resolve));
+  [...timers.values()].find(timer => timer.ms === 12000).fn();
+  assert.equal(await pending, false);
+  callbacks.adFinished();
+  assert.equal(window.AdManager.busy, false);
+});
+
+test('portal origins match exact HTTPS DNS suffixes, never lookalike domains', () => {
+  const {portalOrigin} = require('../server/origins');
+  for (const origin of ['https://crazygames.com', 'https://games.crazygames.com', 'https://preview.games.crazygames.com', 'https://abc.builds.gamedistribution.com']) assert.equal(portalOrigin(origin), true, origin);
+  for (const origin of ['https://evilcrazygames.com', 'https://crazygames.com.evil.test', 'http://games.crazygames.com', 'https://games.crazygames.com:444', 'https://user@games.crazygames.com', 'null', undefined]) assert.equal(portalOrigin(origin), false, String(origin));
 });

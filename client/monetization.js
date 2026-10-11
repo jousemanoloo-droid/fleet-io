@@ -1,4 +1,4 @@
-// CrazyGames SDK v3 + simulación fuera del portal. Independiente de Phaser.
+// CrazyGames SDK v3; simulation is restricted to localhost / 127.0.0.1.
 (function (global) {
   'use strict';
   const I = window.FleetI18n, M = I.m;
@@ -52,39 +52,57 @@
       this._wantsGameplay = false;
       this._reportedGameplay = false;
       this._hooks = {};
+      this._loadingRequested = true; this._loadingStarted = false; this._loadingStopped = false;
+      this.adsDisabled = false; this.adblock = false; this.retryAt = 0;
       this.ready = this._initialize();
     }
 
     async _initialize() {
+      // An iframe is NOT proof of CrazyGames monetization. Only SDK.environment is.
+      // Simulation is explicitly restricted to loopback, never public hosting.
+      const local = ['localhost', '127.0.0.1'].includes(global.location?.hostname);
       const sdk = global.CrazyGames?.SDK;
       let timer;
       try {
-        if (sdk) {
-          // Un SDK que no responde no debe bloquear el arranque local.
-          await Promise.race([
-            sdk.init(),
-            new Promise((_, reject) => {
-              timer = setTimeout(() => reject(new Error('SDK initialization timeout')), 8000);
-            }),
-          ]);
-          if (sdk.environment === 'crazygames') {
-            this.sdk = sdk;
-            this.mode = 'crazygames';
-          }
-        }
+        if (!sdk) throw new Error('CrazyGames SDK is unavailable');
+        await Promise.race([sdk.init(), new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('SDK initialization timeout')), 8000);
+        })]);
+        if (sdk.environment === 'crazygames') {
+          this.sdk = sdk; this.mode = 'crazygames';
+        } else if (local) this.mode = 'simulation';
+        else throw new Error('CrazyGames ads are unavailable in this environment');
       } catch (error) {
-        // No convertir un fallo del SDK en una recompensa simulada en el portal.
-        let portal = false;
-        try { portal = sdk?.environment === 'crazygames'; } catch { /* SDK no inicializado */ }
-        if (portal) this.mode = 'unavailable';
-        this.initializationError = error;
-      } finally {
-        if (timer) clearTimeout(timer);
-      }
-      if (this.mode === 'initializing') this.mode = 'simulation';
+        this.mode = local ? 'simulation' : 'unavailable'; this.initializationError = error;
+      } finally { if (timer) clearTimeout(timer); }
       this._initialized = true;
-      this._syncGameplay();
+      this._syncLoading(); this._syncGameplay();
+      // Detection failure must not prevent ordinary play or fabricate a reward.
+      if (this.sdk?.ad?.hasAdblock) {
+        Promise.resolve().then(() => this.sdk.ad.hasAdblock()).then(value => { this.adblock = value === true; }).catch(() => {});
+      }
       return this.mode;
+    }
+
+    loadingStart() { this._loadingRequested = true; this._syncLoading(); }
+    loadingStop() { this._loadingRequested = false; this._syncLoading(); }
+    _syncLoading() {
+      if (!this._initialized || !this.sdk) return;
+      try {
+        if (!this._loadingStarted) { this.sdk.game.loadingStart(); this._loadingStarted = true; }
+        if (!this._loadingRequested && !this._loadingStopped) { this.sdk.game.loadingStop(); this._loadingStopped = true; }
+      } catch { /* Telemetry must not block the menu. Never use SDK before init. */ }
+    }
+    canShowAds() {
+      return this._initialized && (this.mode === 'crazygames' || this.mode === 'simulation') &&
+        !this.adsDisabled && !this.adblock && Date.now() >= this.retryAt;
+    }
+    _adFailure(error) {
+      const code = error?.code;
+      if (code === 'adsDisabledBasicLaunch') this.adsDisabled = true;
+      if (code === 'adblock') this.adblock = true;
+      if (code === 'unfilled' || code === 'adCooldown') this.retryAt = Date.now() + 120000;
+      return error || new Error('Advertisement unavailable');
     }
 
     setGameHooks(hooks = {}) { this._hooks = hooks; }
@@ -104,22 +122,24 @@
 
     _requestCrazyAd(type, onStarted) {
       return new Promise((resolve, reject) => {
-        let settled = false;
+        let settled = false, timer;
         const finish = error => {
           if (settled) return;
-          settled = true;
-          if (error) reject(error);
+          settled = true; clearTimeout(timer);
+          if (error) reject(this._adFailure(error));
           else resolve(true);
         };
         const callbacks = {
           adStarted: () => {
             if (!settled) {
+              clearTimeout(timer); timer = setTimeout(() => finish(new Error('Advertisement completion timeout')), 120000);
               try { onStarted(); } catch (error) { finish(error); }
             }
           },
           adFinished: () => finish(),
           adError: error => finish(error || new Error('Anuncio no disponible')),
         };
+        timer = setTimeout(() => finish(new Error('Advertisement start timeout')), 12000);
         try {
           // La resolución de requestAd NO concede reward: solo adFinished.
           const result = this.sdk.ad.requestAd(type, callbacks);
@@ -133,6 +153,7 @@
     // Los anuncios display de AdSense no implican una recompensa por sí solos.
     setAdapter(adapter) {
       if (this.busy) throw new Error('Hay un anuncio en curso');
+      if (!['localhost','127.0.0.1'].includes(global.location?.hostname)) throw new Error('Adapter overrides are local-only');
       if (!adapter || typeof adapter.showRewardedAd !== 'function' ||
           typeof adapter.showInterstitialAd !== 'function') {
         throw new TypeError('Invalid advertising adapter');
@@ -153,7 +174,7 @@
       try {
         if (this.adapter) { onStarted(); return (await this.adapter[method]()) === true; }
         await this.ready;
-        if (this.mode === 'unavailable') throw this.initializationError;
+        if (!this.canShowAds()) throw this.initializationError || new Error('Advertisements unavailable');
         if (this.sdk) {
           return await this._requestCrazyAd(method === 'showRewardedAd' ? 'rewarded' : 'midgame', onStarted);
         }

@@ -133,13 +133,15 @@ Abre varias pestañas para probar el multijugador localmente.
 
 `client/index.html` carga el SDK v3 oficial de CrazyGames y
 `client/monetization.js` expone `window.AdManager`. El arranque espera `SDK.init()`:
-en el entorno `crazygames` usa anuncios reales; en localhost, fuera del portal o
-sin SDK activa una simulación cancelable de tres segundos. Un fallo de
-inicialización identificado dentro del portal no concede recompensas simuladas.
+en el entorno `crazygames` usa el SDK nativo; la simulación cancelable solo funciona
+en `localhost` o `127.0.0.1`. Firebase, iframes públicos y el portal nunca simulan
+recompensas si el SDK no está disponible o no inicializa correctamente.
 `showRewardedAd(onSuccess, onFailure)` recompensa únicamente una finalización;
 `showInterstitialAd(callback)` solicita un anuncio `midgame`, devuelve una promesa
 booleana y llama a `callback(completed, error)` sin conceder recompensas.
-No se muestran interstitials automáticamente al morir.
+El reinicio gratuito solicita `midgame` únicamente en muertes donde no se ofreció
+revivir con anuncio. Nunca combina ambos tipos en la misma muerte. El SDK decide
+si hay inventario y si permite el intersticial por su intervalo automático.
 
 El adaptador nativo solicita `rewarded` y recompensa solo desde `adFinished`.
 `adStarted` pausa la escena y silencia su audio; finalización o error restauran
@@ -148,13 +150,66 @@ muerte, resurrección confirmada, menú, desconexión y selección de mutaciones
 El canvas usa Phaser RESIZE y ResizeObserver para adaptarse al iframe sin estirar
 las naves. No hay controles propios de pantalla completa.
 
-Para usar otro proveedor, usar `AdManager.setAdapter(adapter)` con los métodos
+Solo en localhost, para probar otro proveedor usar `AdManager.setAdapter(adapter)` con los métodos
 `showRewardedAd()` y `showInterstitialAd()`. Ambos deben devolver `Promise<boolean>`;
 el wrapper del SDK resuelve `true` al completar y `false` al cancelar o no disponer
 de anuncios. Los anuncios display de AdSense no sirven por sí solos como rewarded ads.
 La confirmación de anuncios procede del SDK en el cliente; el backend valida
 la muerte y la economía retenida, pero no dispone de una prueba independiente
 de visualización del anuncio. Un cliente modificado puede solicitar una recompensa.
+
+### Actualización de QA de CrazyGames (11 de octubre de 2026)
+
+`monetization.js` arranca en el head después del SDK oficial. Encola la intención
+de `loadingStart` desde el arranque y la comunica después de `SDK.init()` (nunca
+usa módulos del SDK antes de inicializar). `GameScene` termina la carga únicamente
+con recursos y menú listos y Socket.io conectado; la pantalla de espera cubre el
+menú mientras tanto. La carga y el gameplay son idempotentes.
+
+Las dos opciones de muerte comparten exactamente la clase `death-choice`, tamaño
+y estilo. La opción gratuita recibe el foco. La oferta rewarded aparece como
+máximo en una de cada dos muertes, además de un intervalo mínimo de 120 segundos
+entre ofertas. Durante anuncios se pausan GameScene/UIScene, audio HTML5 y los
+contextos Web Audio activos; se restaura exclusivamente el estado anterior al
+terminar o fallar. Un error o timeout nunca concede recompensa ni bloquea el
+reinicio. Basic Launch/adblock deshabilitan nuevas ofertas; unfilled/adCooldown
+aplazan los reintentos. La API oficial es `midgame`, **no `midroll`**.
+
+El backend permite Firebase y orígenes HTTPS del dominio CrazyGames y de
+`builds.gamedistribution.com`, incluidos sus subdominios con comprobación del
+sufijo DNS. Tanto polling CORS como el handshake WebSocket usan esta regla.
+
+Archivos de esta actualización: `client/index.html`, `client/monetization.js`,
+`client/js/game-scene.js`, `client/js/features.js`, `client/js/translations.js`,
+`server/server.js` y el nuevo `server/origins.js`. Publicar todo `client/`, no solo
+el HTML, para mantener coherentes los scripts y sus versiones de caché.
+
+Desde PowerShell en la raíz del proyecto:
+
+```powershell
+Set-Location D:\Juego.io
+git push origin main
+firebase deploy --only hosting --project fleet-io-d45d5 --non-interactive
+```
+
+El push de la revisión confirmada inicia el despliegue automático de Render.
+Comprobar `https://fleet-io-backend.onrender.com/healthz` después del despliegue.
+Para CrazyGames, actualizar el envío con `artifacts/fleet-io-crazygames-upload.zip`:
+contiene únicamente el cliente con `index.html` en la raíz. El ZIP completo de
+fuentes es para guardar el proyecto, no para subirlo al portal. Publicar Firebase
+no sustituye los archivos ya subidos al Developer Portal.
+
+En la vista previa del portal verificar loadingStart/Stop, entrada/muerte/respawn,
+los botones de igual tamaño y restauración de audio tras anuncios completos y
+fallidos. Las pruebas automatizadas usan un SDK controlado; no verifican anuncios
+reales, aceptación de QA ni activación de monetización. En Basic Launch los
+anuncios están deshabilitados por la plataforma. La aprobación general depende
+también de sus requisitos de cuenta, multijugador y calidad, fuera de estos cinco
+bloques de integración.
+
+Referencias: [API oficial de anuncios](https://docs.crazygames.com/sdk/video-ads/),
+[requisitos de anuncios](https://docs.crazygames.com/requirements/ads/) y
+[eventos de juego y carga](https://docs.crazygames.com/sdk/game/).
 
 El servidor conserva una captura de puntuación, chatarra y número de escoltas al
 morir. Cada `deathId` admite una sola resurrección: la recompensada conserva el 50%

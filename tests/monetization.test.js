@@ -77,7 +77,7 @@ test('safe spawn chooses clearance from other fleets', () => {
 });
 
 function adManager() {
-  const window = { FleetI18n: i18n() };
+  const window = { location:{hostname:'localhost'}, FleetI18n: i18n() };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../client/monetization.js'), 'utf8'), { window });
   return window.AdManager;
 }
@@ -129,6 +129,7 @@ test('socket handlers reject living, duplicate and stale requests; ignore client
       if (name === 'socket.io') return { Server: FakeIO };
       if (name === './entities') return require('../server/entities');
       if (name === './rpg') return require('../server/rpg');
+      if (name === './origins') return require('../server/origins');
       if (name === './worldEvents') return require('../server/worldEvents');
       if (name === './gameLoop') return { GameLoop: class { start() {} } };
       if (name === './roomManager') return require('../server/roomManager');
@@ -197,7 +198,7 @@ test('socket handlers reject living, duplicate and stale requests; ignore client
   assert.equal(result.ok, false, 'revenge cannot resurrect twice');
 });
 
-test('client death modal blocks input, retries cancelled ads and waits for server respawn', () => {
+test('client death modal blocks input, retries cancelled ads and waits for server respawn', async () => {
   const nodes = new Map();
   const node = id => {
     if (!nodes.has(id)) {
@@ -226,6 +227,7 @@ test('client death modal blocks input, retries cancelled ads and waits for serve
     Phaser: { Scene: class {} }, performance: { now: () => 1000 }, io: () => socket,
     document: { readyState: 'loading', addEventListener() {}, getElementById: node },
     window: { FleetI18n: i18n(), io: () => socket, AdManager: {
+      canShowAds() { return true; }, loadingStop() {},
       showRewardedAd(ok, fail) { success = ok; failure = fail; },
       gameplayStart() { gameplay.push('start'); }, gameplayStop() { gameplay.push('stop'); },
     } },
@@ -251,7 +253,7 @@ test('client death modal blocks input, retries cancelled ads and waits for serve
   assert.equal(C.dead, true);
   assert.ok(gameplay.includes('stop'));
   assert.equal(node('death-overlay').classList.contains('hidden'), false);
-  assert.equal(node('rewarded-respawn-btn').focusCount, 1, 'repeated snapshots preserve modal');
+  assert.equal(node('restart-btn').focusCount, 1, 'repeated snapshots preserve modal');
   scene._handleInput(1000);
   assert.equal(requests.length, 0);
   node('rewarded-respawn-btn').onclick();
@@ -280,4 +282,48 @@ test('client death modal blocks input, retries cancelled ads and waits for serve
   scene._onSnapshot({ roomId: 'old-room', p: [dead] });
   handlers.playerDied({ ...dead, roomId: 'old-room' });
   assert.equal(C.dead, false, 'packets from the previous room must be ignored');
+  let loadingStops = 0;
+  context.window.AdManager.loadingStop = () => loadingStops++;
+  scene._menuReady = false; scene._finishInitialLoading();
+  scene._menuReady = true; C.connected = false; scene._finishInitialLoading();
+  assert.equal(loadingStops, 0, 'both interactive menu and socket are required');
+  C.connected = true; scene._finishInitialLoading();
+  assert.equal(loadingStops, 1);
+
+  scene._showDeath({...dead, deathId: 2});
+  assert.equal(node('rewarded-respawn-btn').hidden, true, 'second death has no rewarded offer');
+  C.dead = false; C._nextRewardOffer = 0;
+  scene._showDeath({...dead, deathId: 3});
+  assert.equal(node('rewarded-respawn-btn').hidden, false, 'eligible third death offers reward');
+  C.dead = false;
+  scene._showDeath({...dead, deathId: 4});
+  C.dead = false;
+  scene._showDeath({...dead, deathId: 5});
+  assert.equal(node('rewarded-respawn-btn').hidden, true, 'two minute cap prevents a rapid third offer');
+  let interstitials = 0;
+  context.window.AdManager.showInterstitialAd = async () => { interstitials++; return false; };
+  const beforeRestart = requests.length;
+  await node('restart-btn').onclick();
+  assert.equal(interstitials, 1, 'natural free restart requests midgame only when no reward was offered');
+  assert.equal(requests[beforeRestart][0], 'requestRespawn', 'failed midgame does not block free restart');
+
+  let hooks;
+  const audioCalls = [];
+  const running = {state: 'running', suspend() {audioCalls.push('suspend');}, resume() {audioCalls.push('resume');}};
+  const suspended = {state: 'suspended', suspend() {assert.fail('already suspended');}, resume() {assert.fail('must preserve suspension');}};
+  const playing = {paused: false, ended: false, pause() {audioCalls.push('pause');}, play() {audioCalls.push('play');}};
+  const paused = {paused: true, pause() {assert.fail('already paused');}, play() {assert.fail('must not start paused media');}};
+  context.document.querySelectorAll = () => [playing, paused];
+  context.window.AdManager.setGameHooks = value => {hooks = value;};
+  scene.sound = {mute: true, context: running};
+  scene._features = {muted: false, audio: suspended};
+  scene.events = {once() {}};
+  scene.scene = {isActive: key => key === 'GameScene', pause: key => audioCalls.push('pause:'+key), resume: key => audioCalls.push('resume:'+key)};
+  scene._setupAdHooks();
+  hooks.onAdStarted();
+  assert.equal(scene.sound.mute, true); assert.equal(scene._features.muted, true);
+  hooks.onAdEnded();
+  assert.equal(scene.sound.mute, true, 'restore prior user mute preference');
+  assert.equal(scene._features.muted, false);
+  assert.deepEqual(audioCalls, ['suspend', 'pause', 'pause:GameScene', 'resume', 'play', 'resume:GameScene']);
 });

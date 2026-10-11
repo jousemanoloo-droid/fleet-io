@@ -17,7 +17,7 @@
       this.lastPointOffer = 0;
       this.buildUI(); this.bind();
       scene.events.once('shutdown', () => this.destroy());
-      if (this.economy.canClaimDaily()) this.daily();
+      // Daily rewards remain accessible in the shop without blocking first play.
     }
     button(label, action) {
       const button = document.createElement('button'); button.className = 'feature-button';
@@ -75,6 +75,7 @@
     }
     shop() {
       if (!this.open(M('shop.title', { coins: this.economy.state.coins }))) return;
+      if (this.economy.canClaimDaily()) this.panel.append(this.button(M('daily.title'),()=>this.daily()));
       for (const type of ['skins', 'trails', 'effects']) {
         const grid = document.createElement('div'); grid.className = 'feature-grid';
         for (const item of global.FleetEconomy.CATALOG[type]) {

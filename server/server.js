@@ -11,6 +11,7 @@ const { Server: SocketIOServer } = require('socket.io');
 const { RoomManager } = require('./roomManager');
 const RPG = require('./rpg');
 const { TITLES, EFFECTS } = require('./worldEvents');
+const { portalOrigin } = require('./origins');
 
 const PORT = process.env.PORT || 3000;
 const CLIENT_DIR = path.join(__dirname, '..', 'client');
@@ -41,7 +42,8 @@ app.use(express.static(CLIENT_DIR));
 const server = http.createServer(app);
 const io = new SocketIOServer(server, {
   cors: {
-    origin: CLIENT_ORIGINS.length ? CLIENT_ORIGINS : !IS_PRODUCTION,
+    origin: (origin, callback) => callback(null, !origin || CLIENT_ORIGINS.includes(origin) || portalOrigin(origin) ||
+      (!IS_PRODUCTION && CLIENT_ORIGINS.length === 0)),
     methods: ['GET', 'POST'],
   },
   // CORS cubre polling; verificar también el origen del handshake WebSocket.
@@ -49,7 +51,7 @@ const io = new SocketIOServer(server, {
     const origin = req.headers.origin;
     let sameOrigin = false;
     try { sameOrigin = new URL(origin).host === req.headers.host; } catch { /* sin Origin */ }
-    callback(null, !origin || sameOrigin || CLIENT_ORIGINS.includes(origin) ||
+    callback(null, !origin || sameOrigin || CLIENT_ORIGINS.includes(origin) || portalOrigin(origin) ||
       (!IS_PRODUCTION && CLIENT_ORIGINS.length === 0));
   },
   pingInterval: 15000,
