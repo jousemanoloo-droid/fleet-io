@@ -30,7 +30,7 @@ test('XP has exact per-level costs, 3 points per level and four evolution tiers'
 
 test('attribute allocation rejects overspending and enforces exact caps', () => {
   const p = pilot(); p.attributePoints = 117;
-  assert.equal(RPG.allocate(p, 'speed', 10), true); assert.equal(p.maxSpeed, 9.5);
+  assert.equal(RPG.allocate(p, 'speed', 10), true); assert.equal(p.maxSpeed, 12.5);
   assert.equal(RPG.allocate(p, 'speed'), false);
   assert.equal(RPG.allocate(p, 'shield', 10), true); assert.equal(p.maxHp, 600);
   assert.equal(RPG.allocate(p, 'damage', 10), true); assert.equal(RPG.damage(p), 10);

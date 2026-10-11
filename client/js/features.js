@@ -25,7 +25,7 @@
     buildUI() {
       this.bar = document.createElement('div'); this.bar.className = 'feature-bar';
       this.abilityButtons = {};
-      for (const [type, label] of [['dash', 'SHIFT · TURBO'], ['shield', 'Q · ESCUDO'], ['emp', 'E · EMP']]) {
+      for (const [type, label] of [['dash', 'SHIFT · TURBO'], ['shield', 'Q · ESCUDO'], ['emp', 'R · EMP'], ['parry', 'F · PARRY']]) {
         const button = this.button(label, () => this.ability(type));
         button.dataset.label = label; this.abilityButtons[type] = button; this.bar.append(button);
       }
@@ -74,13 +74,13 @@
     }
     shop() {
       if (!this.open(`TIENDA · ${this.economy.state.coins} ◈`)) return;
-      for (const type of ['skins', 'trails']) {
+      for (const type of ['skins', 'trails', 'effects']) {
         const grid = document.createElement('div'); grid.className = 'feature-grid';
         for (const item of global.FleetEconomy.CATALOG[type]) {
           const owned = this.economy.state[type].includes(item.id);
           const card = document.createElement('div'); card.className = 'feature-card';
           const label = document.createElement('strong'); label.textContent = item.name;
-          const selected = this.economy.state.equipped[type === 'skins' ? 'skin' : 'trail'] === item.id;
+          const selected = this.economy.state.equipped[type === 'skins' ? 'skin' : type === 'effects' ? 'killEffect' : 'trail'] === item.id;
           const buy = this.button(selected ? 'EQUIPADO' : owned ? 'EQUIPAR' : `${item.price} ◈ · COMPRAR`, () => {
             if (!this.economy.buy(type, item.id)) return;
             this.currency(); this.loadout(); this.shop();
@@ -121,7 +121,7 @@
       this.panel.append(grid); this.closeButton();
     }
     bind() {
-      for (const [key, type] of [['SHIFT', 'dash'], ['Q', 'shield'], ['E', 'emp']]) {
+      for (const [key, type] of [['SHIFT', 'dash'], ['Q', 'shield'], ['R', 'emp'], ['F', 'parry']]) {
         const handler = event => { if (!event?.repeat) this.ability(type); };
         this.scene.input.keyboard.on('keydown-' + key, handler); this.keys[key] = handler;
       }
@@ -151,6 +151,7 @@
       this.handlers = {
         level_up: data => {
           if (!this.inRoom(data)) return;
+          this.offerAfter = performance.now() + 1200;
           this.announce(`NIVEL ${data.level} · +3 PUNTOS`, '#88efff', 28);
         },
         ability_used: data => { if (this.inRoom(data)) this.effect(data); },
@@ -158,7 +159,7 @@
           if (!this.inRoom(data)) return;
           this.scene.cameras.main.shake(50, 0.002);
           const now = performance.now();
-          if (now - (this.hitAt || 0) > 150) { this.hitAt = now; this.scene._hitStopUntil = now + 40; }
+          if (now - (this.hitAt || 0) > 150) { this.hitAt = now; if ((data.hp ?? this.me?.hp) / (data.maxHp ?? this.me?.maxHp) <= 0.25) this.scene._cyber?.impact(); }
         },
         kill_streak: data => {
           if (!this.inRoom(data) || data.id !== this.C.myId) return;
@@ -190,7 +191,7 @@
     }
     loadout() {
       if (this.C.connected && this.C.joined && !this.C.dead) this.C.socket.emit('setCosmetics', {
-        ...this.economy.state.equipped, roomId: this.C.room?.roomId });
+          ...this.economy.state.equipped, titles: this.economy.state.titles, roomId: this.C.room?.roomId });
     }
     applyBoost() {
       if (!this.economy.state.pendingBoost) return;
@@ -241,8 +242,10 @@
     }
     sync(me) {
       this.me = me;
+      this.scene._retention?.sync(me);
       this.pointsButton.textContent = `ATRIBUTOS · ${me.attributePoints || 0}`;
       if (me.hp > 0 && !this.matchClosed && me.level > this.lastPointOffer && (me.attributePoints || 0) > 0 &&
+          performance.now() >= (this.offerAfter || 0) &&
           !this.C.menuOpen && !this.C.mutationsOpen && !this.blocking && !global.AdManager?.busy) {
         this.lastPointOffer = me.level; this.attributes();
       }

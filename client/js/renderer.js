@@ -6,7 +6,7 @@
       type: Phaser.WEBGL, parent: 'game',
       width: parent.clientWidth || global.innerWidth,
       height: parent.clientHeight || global.innerHeight,
-      backgroundColor: '#03040c',
+      backgroundColor: '#000000',
       scale: { mode: Phaser.Scale.RESIZE, parent: 'game', autoCenter: Phaser.Scale.CENTER_BOTH },
       physics: { default: 'arcade', arcade: { debug: false, fps: 30 } },
       scene: scenes,

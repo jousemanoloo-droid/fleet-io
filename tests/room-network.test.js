@@ -10,6 +10,7 @@ const Network = require('../client/js/network');
 // No se necesita añadir una dependencia de ejecución para las pruebas.
 class RoomClient {
   constructor(url) {
+    this.decoder = new Network.Decoder();
     this.events = [];
     this.waiters = [];
     this.acks = new Map();
@@ -24,7 +25,11 @@ class RoomClient {
         else if (packet.startsWith('40')) resolve();
         else if (packet.startsWith('42')) {
           const [name, raw] = JSON.parse(packet.slice(2));
-          const data = name === 'gameState' ? Network.decode(raw) : raw;
+          const data = name === 'gameState' ? this.decoder.receive(raw) : raw;
+          if (!data) {
+            this.ws.send('42' + JSON.stringify(['requestSnapshot', { roomId: raw.roomId }]));
+            return;
+          }
           this.events.push({ name, data });
           for (const waiter of [...this.waiters]) {
             if (waiter.predicate({ name, data })) {
@@ -103,7 +108,7 @@ test('real WebSocket clients join isolated public/private/solo rooms and transfe
   creator.ws.send('42' + JSON.stringify(['playerMove', { tx: 2000, ty: 2000, seq: 1 }]));
   const acknowledged = await creator.waitFor(event => event.name === 'gameState' &&
     event.data.p.some(p => p.name === 'Creator' && p.inputSeq === 1));
-  assert.equal(acknowledged.p.find(p => p.name === 'Creator').maxSpeed, 4.5);
+  assert.equal(acknowledged.p.find(p => p.name === 'Creator').maxSpeed, 7.5);
   const isolated = await solo.waitFor(event => event.name === 'gameState');
   assert.equal(isolated.p.filter(p => p.isBot).length, 7);
   assert.equal(isolated.p.some(p => p.name === 'Creator'), false);

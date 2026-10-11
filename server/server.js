@@ -10,6 +10,7 @@ const { Server: SocketIOServer } = require('socket.io');
 
 const { RoomManager } = require('./roomManager');
 const RPG = require('./rpg');
+const { TITLES, EFFECTS } = require('./worldEvents');
 
 const PORT = process.env.PORT || 3000;
 const CLIENT_DIR = path.join(__dirname, '..', 'client');
@@ -82,7 +83,7 @@ io.on('connection', (socket) => {
       socket.emit('welcome', {
         yourId: player.id, room: room.info(), world: room.world, tick: room.loop.tickCount,
       });
-      socket.emit('respawned', { ...player.toNetwork(), roomId: room.roomId });
+      socket.emit('respawned', { ...player.toNetwork(), roomId: room.roomId, coreTarget: room.events.coreTarget(player) });
       room.broadcastInfo();
       reply({ ok: true, room: room.info(), roomCode: room.code });
     } catch (error) {
@@ -104,6 +105,7 @@ io.on('connection', (socket) => {
     if (!player || !player.alive || player.hp <= 0 || !data) return;
     if (data.roomId && data.roomId !== room.roomId) return;
     if (Number.isInteger(data.deathId) && data.deathId !== player.deathId) return;
+    if (data.motionRevision !== undefined && data.motionRevision !== player.motionRevision) return;
     const tx = Number(data.tx), ty = Number(data.ty);
     if (!Number.isFinite(tx) || !Number.isFinite(ty)) return;
     if (Number.isSafeInteger(data.seq) && data.seq > 0) {
@@ -131,6 +133,18 @@ io.on('connection', (socket) => {
     return state.player?.alive && (!data?.roomId || data.roomId === state.room.roomId) &&
       (data?.deathId === undefined || data.deathId === state.player.deathId) ? state : null;
   };
+  let lastSnapshotRequest = 0;
+  socket.on('requestSnapshot', data => {
+    const state = current(), now = Date.now();
+    if (!state.room || data?.roomId !== state.room.roomId || now - lastSnapshotRequest < 500) return;
+    lastSnapshotRequest = now;
+    if (state.room.loop.keyframe) socket.emit('gameState', state.room.loop.keyframe);
+  });
+  socket.on('TRIGGER_DRONE_SWARM', (data, ack) => {
+    const state = valid(data);
+    const ok = !!state && state.room.swarm.trigger(state.player);
+    reply(ack, { ok, cooldown: state?.player.swarmUntil ? Math.max(0, state.player.swarmUntil - Date.now()) : 0 });
+  });
   socket.on('allocateAttribute', (data, ack) => {
     const state = valid(data);
     if (!state || !RPG.allocate(state.player, data?.attribute, data?.points ?? 1)) {
@@ -152,6 +166,20 @@ io.on('connection', (socket) => {
     if (!state) return;
     if (['default', 'alien', 'gold', 'chrome'].includes(data?.skin)) state.player.skin = data.skin;
     if (['cyan', 'orange', 'purple'].includes(data?.trail)) state.player.trail = data.trail;
+    if (EFFECTS.includes(data?.killEffect)) state.player.killEffect = data.killEffect;
+    if (Array.isArray(data?.titles)) state.player.titles = [...new Set([
+      ...state.player.titles, ...data.titles.filter(title => TITLES.includes(title))])];
+  });
+  socket.on('ackCoinReward', data => {
+    const { room, player } = current();
+    if (!player || data?.roomId !== room.roomId || typeof data?.id !== 'string') return;
+    const index = player.coinRewards.findIndex(reward => reward.id === data.id);
+    if (index < 0) return;
+    player.coinRewards.splice(index, 1);
+    if (player.coinRewardReserve > 0) {
+      const coins = player.coinRewardReserve; player.coinRewardReserve = 0;
+      room.events.award(player, coins, 'world-events');
+    }
   });
   socket.on('claimDailyBoost', (_data, ack) => {
     const state = current();
@@ -175,7 +203,8 @@ io.on('connection', (socket) => {
     const spawn = { x: player.x, y: player.y };
     player.respawn(false, room.players, room.world, room.obstacles);
     player.x = player.targetX = spawn.x; player.y = player.targetY = spawn.y;
-    socket.emit('respawned', { ...player.toNetwork(), roomId: room.roomId, revengeTarget: killer.id });
+    socket.emit('respawned', { ...player.toNetwork(), roomId: room.roomId, revengeTarget: killer.id,
+      coreTarget: room.events.coreTarget(player) });
     reply(ack, { ok: true });
   });
 
@@ -190,7 +219,7 @@ io.on('connection', (socket) => {
       return;
     }
     player.respawn(rewarded, room.players, room.world, room.obstacles);
-    socket.emit('respawned', { ...player.toNetwork(), roomId: room.roomId });
+    socket.emit('respawned', { ...player.toNetwork(), roomId: room.roomId, coreTarget: room.events.coreTarget(player) });
     reply({ ok: true });
   };
   socket.on('requestRewardedRespawn', (data, ack) => handleRespawn(true, data, ack));

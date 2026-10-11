@@ -8,6 +8,7 @@ const TICK_INTERVAL = 1000 / TICK_RATE;
 const { updateCombat, resolveObstacles } = require('./combat');
 const Network = require('../client/js/network');
 const RPG = require('./rpg');
+const { WorldEvents } = require('./worldEvents');
 
 class GameLoop {
   constructor(gameState, io) {
@@ -20,7 +21,12 @@ class GameLoop {
     this.running = false;
     this.tickCount = 0;
     this._interval = null;
+    this.keyframe = null;
     this._lastScrapSpawn = 0;
+    gameState.swarm ||= new (require('./swarm').DroneSwarm)(gameState);
+    gameState.events ||= new WorldEvents(gameState);
+    gameState.competitive ||= new (require('./competitive').Competitive)(gameState);
+    gameState.hazards ||= new (require('./hazards').Hazards)(gameState);
   }
 
   start() {
@@ -40,13 +46,17 @@ class GameLoop {
   _tick() {
     this.tickCount++;
 
+    this.state.competitive.update();
+    this.state.hazards.update();
     this._updatePlayers();
     this.state.impacts = [];
+    this.state.swarm.update();
     updateCombat(this.state, this.tickCount);
     this._processDeaths();
     this._updateScrap();
     this._checkScrapCollection();
     this._maybeSpawnScrap();
+    this.state.events.update();
     this._flushProgression();
 
     this._broadcastState(); // 30 snapshots/s, independiente del refresco del cliente.
@@ -55,10 +65,14 @@ class GameLoop {
   _updatePlayers() {
     this._processDeaths();
     for (const p of this.state.players.values()) {
+      p.competitive = this.state.competitive;
+      p.swarm = this.state.swarm;
       if (p.alive) {
         if (p.isBot) p.think(this.state, this.tickCount);
         p.update();
         resolveObstacles(p, this.state.obstacles);
+        this.state.hazards.traverse(p);
+        this.state.hazards.combo(p);
       }
     }
   }
@@ -70,6 +84,9 @@ class GameLoop {
       p.die();
       if (p._notifiedDeathId !== p.deathId) {
         p._notifiedDeathId = p.deathId;
+        this.state.competitive.kill(this.state.players.get(p.killedBy?.id), p);
+        this.state.hazards.kill(this.state.players.get(p.killedBy?.id));
+        this.state.events.death(p, now);
         if (p.isBot) {
           p.respawnAt = now + 3000;
           // Drop acotado para no inflar la red ni duplicar material por cada tick.
@@ -213,14 +230,24 @@ class GameLoop {
       p: playersPayload,
       s: scrapsPayload,
       b: Array.from(this.state.projectiles.values(), b =>
-        [b.id, +b.x.toFixed(1), +b.y.toFixed(1), b.color, +Math.atan2(b.vy, b.vx).toFixed(4)]),
+        [b.id, +b.x.toFixed(1), +b.y.toFixed(1), b.color, +Math.atan2(b.vy, b.vx).toFixed(4), b.motionRevision || 0]),
       o: Array.from(this.state.obstacles.values()),
       i: this.state.impacts || [],
       kingId: king?.id || null,
       king: king ? { id: king.id, x: king.x, y: king.y } : null,
+      w: this.state.events.snapshot(),
+      competitive: this.state.competitive.snapshot(),
+      hazards: this.state.hazards.snapshot(),
     };
 
-    this.io.to(this.state.roomId).volatile.emit('gameState', snapshot);
+    if (!this.keyframe || this.tickCount - this.keyframe.t >= 30) {
+      snapshot.keyframe = snapshot.t;
+      // Freeze the baseline by copying mutable RPG arrays and world objects once/s.
+      this.keyframe = JSON.parse(JSON.stringify(snapshot));
+      this.io.to(this.state.roomId).emit('gameState', this.keyframe);
+    } else {
+      this.io.to(this.state.roomId).volatile.emit('gameState', Network.delta(this.keyframe, snapshot));
+    }
   }
 }
 

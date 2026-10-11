@@ -74,13 +74,18 @@ class Drone {
     this.orbitRadius = 45;
     this.speed = 2.2;
     this.health = 1;
+    this.state = 'ORBIT'; this.attackTimer = 0;
   }
 
   update(owner, deltaSeconds = 1 / 30) {
+    if (this.state !== 'ORBIT') return;
     this.angle += this.speed * deltaSeconds;
     const angleOffset = this.index * (Math.PI * 2 / 6);
-    this.x = owner.x + Math.cos(this.angle + angleOffset) * this.orbitRadius;
-    this.y = owner.y + Math.sin(this.angle + angleOffset) * this.orbitRadius;
+    this.hazardOffsetX = ((this.hazardOffsetX || 0)+(this.hazardKickX || 0))*.94;
+    this.hazardOffsetY = ((this.hazardOffsetY || 0)+(this.hazardKickY || 0))*.94;
+    this.hazardKickX=(this.hazardKickX || 0)*.9;this.hazardKickY=(this.hazardKickY || 0)*.9;
+    this.x = owner.x + Math.cos(this.angle + angleOffset) * this.orbitRadius + this.hazardOffsetX;
+    this.y = owner.y + Math.sin(this.angle + angleOffset) * this.orbitRadius + this.hazardOffsetY;
   }
 
   toNetwork() {
@@ -88,6 +93,7 @@ class Drone {
       id: this.id,
       x: Math.round(this.x),
       y: Math.round(this.y),
+      state: this.state, attackTimer: Math.ceil(this.attackTimer), rotation: this.rotation || 0,
     };
   }
 }
@@ -108,8 +114,8 @@ class Player extends Entity {
     // --- Movimiento con inercia ---
     this.vx = 0;
     this.vy = 0;
-    this.maxSpeed = 4.5;
-    this.acceleration = 0.35;
+    this.maxSpeed = Movement.BASE_SPEED;
+    this.acceleration = Movement.BASE_ACCELERATION;
     this.friction = 0.92;
 
     this.targetX = spawnX;
@@ -120,6 +126,7 @@ class Player extends Entity {
     this.scrapCollected = 0;
     this.drones = [];
     this.nextDroneIndex = 0;
+    this.tacticalDrones = []; this.swarmUntil = 0;
 
     // --- Sistema de niveles y mutaciones (roguelite) ---
     this.hp = 100;
@@ -163,9 +170,7 @@ class Player extends Entity {
     Movement.step(this, { tx: this.targetX, ty: this.targetY }, WORLD);
     RPG.orbit(this);
 
-    for (const drone of this.drones) {
-      drone.update(this);
-    }
+    if (!this.swarm) for (const drone of this.drones) drone.update(this);
   }
 
   addDrone(droneId) {
@@ -185,12 +190,18 @@ class Player extends Entity {
       totalXp: this.totalXp, survivedMs: Date.now() - this.matchStartedAt,
     });
     this.hp = 0;
+    this.competitive?.clearBuffs(this); this.kothTime = 0;
     this.alive = false;
     this.vx = this.vy = 0;
     this.inputQueue.length = 0;
+    this.swarm?.release(this); this.swarmUntil = 0;
     this.drones = [];
     this.orbitalDrones = [];
     this.killStreak = 0;
+    this.escapePending = false;
+    this.comboCount = this.comboTimer = this.slingshotRemaining = this.teleportRemaining = 0;
+    this.kickX = this.kickY = this.kickAppliedX = this.kickAppliedY = 0; this.gravityWell = null;
+    this.fireRateMultiplier = this.moveSpeedMultiplier = 1;
     this.dashUntil = this.shieldUntil = this.empUntil = this.dailyBoostUntil = 0;
     this.levelUpPending = false;
     this.invulnerable = false;
@@ -208,7 +219,7 @@ class Player extends Entity {
     this.nextDroneIndex = 0;
     if (!rewarded) {
       this.maxHp = 100;
-      this.maxSpeed = 4.5;
+      this.maxSpeed = Movement.BASE_SPEED;
       this.collectRadius = this.radius + 12;
       this.mutations = [];
       this.attributes = { speed: 0, shield: 0, damage: 0, fireRate: 0 };
@@ -217,7 +228,7 @@ class Player extends Entity {
     RPG.restoreXP(this, (saved.totalXp || saved.scrap * 10) * fraction);
     this.killedBy = null;
     this.matchStartedAt = Date.now();
-    this.abilityReady = { dash: 0, shield: 0, emp: 0 };
+    this.abilityReady = { dash: 0, shield: 0, emp: 0, parry: 0 };
     // Buscar separación respecto a naves y escoltas. En mapas saturados,
     // escoger el punto más alejado y conceder protección temporal.
     let best = null;
@@ -251,18 +262,27 @@ class Player extends Entity {
     for (let i = 0; i < Math.floor(saved.drones * fraction); i++) {
       this.addDrone(`respawn_${this.id}_${this.deathId}_${i}`).update(this);
     }
+    RPG.addXP(this, this.pendingEventXP);
+    this.pendingEventXP = 0;
+    this.competitive?.respawn(this);
     return true;
   }
 
   takeDamage(amount, attacker = null) {
-    if (!this.alive || this.invulnerable || Date.now() < this.spawnProtectionUntil ||
+    if (!this.alive || this.invulnerable || Date.now() < this.revengeUntil || Date.now() < this.spawnProtectionUntil ||
         Date.now() < this.dashUntil || Date.now() < this.shieldUntil ||
         !Number.isFinite(amount) || amount <= 0) return false;
     this.hp = Math.max(0, this.hp - amount);
+    this.lastDamageAt = Date.now();
+    if (this.hp > 0 && this.hp / this.maxHp < 0.1) {
+      this.escapePending = true; this.escapeThreat = attacker?.id || null;
+    }
     if (this.hp <= 0) {
       if (attacker && attacker !== this) {
-        attacker.killStreak++; attacker.score += 100;
-        RPG.addXP(attacker, 100);
+        if (attacker.alive) {
+          attacker.killStreak++; attacker.score += 100;
+          RPG.addXP(attacker, 100);
+        }
         this.killedBy = RPG.killerInfo(attacker);
       }
       this.die();
@@ -368,6 +388,8 @@ class Player extends Entity {
       levelUpPending: this.levelUpPending,
       invulnerable: this.invulnerable || Date.now() < this.spawnProtectionUntil,
       drones: this.drones.map((d) => d.toNetwork()),
+      tacticalDrones: this.tacticalDrones.map(d => ({ id: d.id, x: Math.round(d.x), y: Math.round(d.y), state: d.state, attackTimer: Math.ceil(d.attackTimer), rotation: d.rotation || 0 })),
+      swarmCooldown: Math.max(0, this.swarmUntil - Date.now()),
       orbitalDrones: this.orbitalDrones,
       ...RPG.network(this),
     };

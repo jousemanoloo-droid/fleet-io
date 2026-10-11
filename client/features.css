@@ -10,4 +10,24 @@
 .feature-status { min-height:24px; color:#ffc76b; }
 .killer-card { margin:12px 0; padding:12px; border:1px solid #ff406e; border-radius:10px; color:#ffadc1; }
 .killer-avatar { width:72px; height:60px; object-fit:contain; vertical-align:middle; margin-right:12px; }
+.world-banner { position:fixed; top:12px; left:50%; transform:translateX(-50%); z-index:30; max-width:55vw; text-align:center; color:#ffd678; font:700 14px system-ui; text-shadow:0 2px 5px #000; pointer-events:none; }
+.world-banner:empty { display:none; }
+.world-boss { position:fixed; top:45px; left:50%; transform:translateX(-50%); width:min(450px,50vw); z-index:30; color:#ffca6c; font:700 12px system-ui; text-align:center; }
+.world-boss progress { display:block; width:100%; height:14px; accent-color:#ff9d35; }
+.world-indicator { position:fixed; z-index:29; pointer-events:none; text-align:center; transform:translate(-50%,-50%); text-shadow:0 2px 5px #000; }
+.world-indicator span { display:block; font:700 24px system-ui; }
+.world-indicator small { display:block; max-width:120px; font:700 10px system-ui; }
+.lb-title { display:block; font-size:9px; color:#ffd36f; }
 @media(max-width:600px) { .feature-bar { bottom:54px; width:95vw; } .feature-button { padding:6px; font-size:11px; } .feature-panel { padding:16px; } }
+.koth-banner { position:fixed;top:100px;left:50%;transform:translateX(-50%);color:#00ffff;background:#061426dd;border:1px solid #00ffff55;border-radius:9px;padding:7px 15px;font:bold 13px system-ui;pointer-events:none;z-index:12;max-width:55vw;text-align:center; }
+.pvp-buff { position:fixed;left:50%;bottom:115px;transform:translateX(-50%);color:#ffd454;font:bold 14px system-ui;pointer-events:none;z-index:12;text-shadow:0 2px 3px #000; }
+@media(max-width:700px){.koth-banner{top:80px;font-size:10px;padding:4px 8px}.pvp-buff{bottom:150px;font-size:11px}.feature-bar{flex-wrap:wrap;max-width:95vw;justify-content:center}}
+.kill-chain { position:fixed;top:145px;left:50%;transform:translateX(-50%);color:#ffd354;font:900 23px system-ui;pointer-events:none;z-index:20;text-shadow:0 0 15px #ff734899,0 2px 4px #000; }
+.chain-bounce { animation:chain-bounce .3s ease-out; }
+@keyframes chain-bounce { 0% { transform:translateX(-50%) scale(.75); } 50% { transform:translateX(-50%) scale(1.2); } 100% { transform:translateX(-50%) scale(1); } }
+@media(max-width:700px) { .kill-chain { top:125px;font-size:16px; } }
+
+.blitz-button { position:fixed; right:240px; bottom:22px; z-index:35; width:90px; height:90px; border-radius:50%; border:2px solid #28faff; color:#e1ffff; font:bold 12px system-ui; box-shadow:0 0 18px #00ffff55; background:conic-gradient(#ec23dc99 var(--cooldown,0deg),#081f2eee 0); cursor:pointer; touch-action:manipulation; }
+.blitz-button:disabled { cursor:default; color:#a5d2df; }
+.blitz-button[hidden] { display:none; }
+@media(max-width:600px) { .blitz-button { width:66px; height:66px; bottom:238px; right:10px; font-size:10px; } }

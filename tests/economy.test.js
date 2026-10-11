@@ -36,3 +36,24 @@ test('corrupt or disabled localStorage never breaks game startup', () => {
   assert.equal(economy.persistent, false); assert.equal(economy.settle('session', 500), 10);
   assert.equal(economy.state.coins, 10);
 });
+test('server receipts remain idempotent after many later awards and reload; effect purchases persist', () => {
+  const { economy, window, storage } = fixture();
+  economy.credit('room:reward:1', 5000);
+  for (let i = 2; i <= 200; i++) economy.credit(`room:reward:${i}`, 1);
+  assert.equal(economy.credit('room:reward:1', 5000), 0);
+  assert.equal(economy.state.coins, 5199);
+  assert.equal(economy.buy('effects', 'FROST_SHATTER'), true);
+  economy.unlockTitle('Space Terror');
+  const restored = new window.FleetEconomy.Economy(storage);
+  assert.equal(restored.state.equipped.killEffect, 'FROST_SHATTER');
+  assert.ok(restored.state.titles.includes('Space Terror'));
+  assert.equal(restored.credit('room:reward:1', 5000), 0);
+});
+test('burst coin rewards use one persistence transaction and sort snapshot receipts', () => {
+  const { economy, storage } = fixture(); let saves = 0;
+  const setItem = storage.setItem; storage.setItem = (key, value) => { if (key === 'fleet_io_economy_state') saves++; setItem(key, value); };
+  assert.equal(economy.creditBatch([{ id: 'room:reward:3', coins: 10 }, { id: 'room:reward:1', coins: 5 },
+    { id: 'room:reward:2', coins: 8 }, { id: 'room:reward:1', coins: 5 }]), 23);
+  assert.equal(saves, 1); assert.equal(economy.state.coins, 23);
+  assert.equal(economy.creditBatch([{ id: 'room:reward:1', coins: 5 }]), 0); assert.equal(saves, 1);
+});

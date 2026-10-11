@@ -10,9 +10,17 @@
     }
     reconcile(server, world, obstacles) {
       if (server.hp <= 0) return;
+      if ((server.motionRevision || 0) < (this.state.motionRevision || 0)) return;
+      if ((server.motionRevision || 0) !== (this.state.motionRevision || 0)) { this.reset(server); return; }
       this.pending = this.pending.filter(input => input.seq > (server.inputSeq || 0));
       const replay = { ...server };
-      for (const input of this.pending) global.FleetMovement.step(replay, input, world, obstacles);
+      for (const input of this.pending) {
+        global.FleetMovement.step(replay, input, world, obstacles);
+        if (replay.revengeRemaining > 0) {
+          replay.revengeRemaining = Math.max(0,replay.revengeRemaining-global.FleetMovement.STEP_MS);
+          if (!replay.revengeRemaining) replay.speedMultiplier=1;
+        }
+      }
       const dx = this.state.x - replay.x, dy = this.state.y - replay.y;
       // Rebasar SIEMPRE la simulación, también para errores pequeños. Esperar a
       // acumular 15 px producía correcciones periódicas en forma de dientes de sierra.
@@ -25,6 +33,9 @@
       this.state.dashing = !!server.dashing;
       this.state.slowed = !!server.slowed;
       this.state.boosted = !!server.boosted;
+      this.state.speedMultiplier = replay.speedMultiplier || 1;
+      this.state.revengeRemaining = replay.revengeRemaining || 0;
+      for (const key of ['comboCount','comboTimer','slingshotRemaining','teleportRemaining','kickX','kickY','kickAppliedX','kickAppliedY','gravityWell']) this.state[key]=replay[key];
     }
     advance(delta, target, world, obstacles, send) {
       const model = global.FleetMovement;
@@ -37,6 +48,10 @@
           if (this.pending.length > 120) this.pending.shift();
         }
         model.step(this.state, input || target, world, obstacles);
+        if (this.state.revengeRemaining > 0) {
+          this.state.revengeRemaining = Math.max(0,this.state.revengeRemaining-model.STEP_MS);
+          if (!this.state.revengeRemaining) this.state.speedMultiplier = 1;
+        }
         this.accumulator = Math.max(0, this.accumulator - model.STEP_MS);
       }
       const error = Math.hypot(this.offsetX, this.offsetY);

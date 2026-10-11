@@ -14,7 +14,16 @@ function prediction(state) {
   vm.runInNewContext(fs.readFileSync('client/js/player.js', 'utf8'), { window });
   return new window.FleetPredictedPlayer(state);
 }
-const initial = () => ({ x: 1000, y: 1000, vx: 0, vy: 0, radius: 18, maxSpeed: 4.5, hp: 100 });
+const initial = () => ({ x: 1000, y: 1000, vx: 0, vy: 0, radius: 18, maxSpeed: Movement.BASE_SPEED, hp: 100 });
+
+test('base and upgraded ships reach their speed cap despite friction', () => {
+  for (const maxSpeed of [Movement.BASE_SPEED, Movement.BASE_SPEED + 5]) {
+    const p = { ...initial(), maxSpeed };
+    for (let i = 0; i < 120; i++) Movement.step(p, { tx: 3900, ty: 1000 });
+    assert.ok(Math.abs(p.vx - maxSpeed) < 0.0001);
+    assert.equal(p.vy, 0);
+  }
+});
 
 test('local prediction advances immediately and fixed simulation matches 60/120/144 Hz', () => {
   const results = [];
@@ -57,7 +66,9 @@ test('sustained movement never stalls or reverses under jitter and a slower serv
     for (const serverInterval of [33, 35, 40]) {
       const predicted = prediction(initial());
       const server = new Player('pilot', 'Pilot');
-      Object.assign(server, initial()); server.setTarget(3000, 1000);
+      // Con la nueva velocidad, un objetivo a 3000 se alcanza antes de acabar
+      // la prueba. Mantener recorrido libre para medir tirones, no frenado final.
+      Object.assign(server, initial()); server.setTarget(3900, 1000);
       let seq = 0, serverAt = serverInterval, lastX = 1000;
       const commands = [], snapshots = [];
       for (let now = 1000 / hz; now < 10000; now += 1000 / hz) {
@@ -73,7 +84,7 @@ test('sustained movement never stalls or reverses under jitter and a slower serv
         while (snapshots.length && snapshots[0].at <= now) {
           predicted.reconcile(snapshots.shift().state);
         }
-        const view = predicted.advance(1000 / hz, { tx: 3000, ty: 1000 }, undefined, [], target => {
+        const view = predicted.advance(1000 / hz, { tx: 3900, ty: 1000 }, undefined, [], target => {
           const input = { ...target, seq: ++seq };
           commands.push({ at: now + 60 + Math.sin(seq * 0.07) * 40, input });
           return input;

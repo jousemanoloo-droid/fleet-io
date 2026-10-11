@@ -27,6 +27,7 @@ fleet-io/
 │   │   ├── progression.js # Curva de XP compartida, niveles 1–40
 │   │   ├── economy.js   # Monedas, tienda y recompensa diaria local
 │   │   ├── features.js  # Habilidades, atributos y efectos sociales
+│   │   ├── retention.js # Gemas, radar de cacerías, jefe y efectos de eliminación
 │   │   ├── network.js  # Protocolo compacto e interpolación
 │   │   └── visuals.js  # Texturas sci-fi y fondo de paralaje
 │   ├── config.js       # URL pública del backend
@@ -40,6 +41,7 @@ fleet-io/
 │   ├── gameRoom.js     # Mundo aislado y colecciones Map
 │   ├── bot.js          # FSM y steering de bots
 │   ├── rpg.js          # XP, atributos, habilidades y evolución
+│   ├── worldEvents.js  # Calendario, loot, núcleos, cacerías y Leviathan
 │   └── combat.js       # Disparos, colisiones y obstáculos
 ├── package.json
 └── README.md
@@ -104,7 +106,7 @@ Abre varias pestañas para probar el multijugador localmente.
   ├─ scrap.update()
   ├─ checkScrapCollection() (radio absorb)
   └─ maybeSpawnScrap()
-        │  gameState snapshot (volatile, 30 Hz, formato v2)
+        │  gameState (30 Hz: keyframe fiable v2 + deltas v3)
         ▼
 [Cliente: predicción local + buffer remoto 80 ms / 5 estados]
   └─ render independiente del tick de red (Phaser RAF)
@@ -359,11 +361,11 @@ Los enemigos y láseres conservan cinco snapshots y se interpolan a 80 ms, inclu
 la rotación por el arco más corto. No se extrapolan enemigos indefinidamente si
 faltan paquetes. Las colas de entrada y partículas tienen límites explícitos.
 
-El protocolo `gameState.v = 2` empaqueta jugadores, drones, chatarra y proyectiles
-en arrays; `network.js` comparte el codificador/decodificador con el servidor y
-acepta también snapshots antiguos de objetos. Cada snapshot sigue siendo completo,
-por lo que los envíos volatile no dependen de una cadena de deltas que podría
-perderse. Desplegar cliente y servidor juntos al actualizar a este protocolo.
+El protocolo empaqueta jugadores, drones, chatarra y proyectiles en arrays.
+`network.js` comparte el codificador/decodificador con el servidor y acepta también
+snapshots antiguos de objetos. La versión actual transmite keyframes fiables v2 y
+deltas v3 independientes relativos a esa base, reconstruyendo cada estado completo.
+Desplegar cliente y servidor juntos al actualizar este protocolo.
 
 Naves, drones, escudos, láseres, asteroides y chatarra usan texturas procedurales
 reutilizadas. Las capas TileSprite de estrellas usan paralaje 0,1 / 0,2 / 0,3 y una
@@ -373,6 +375,11 @@ se desbloquean al alcanzar niveles 10, 20, 30 y 40. La curva de XP se comparte e
 servidor y HUD. Un drop que cruza varios hitos abre una sola elección de mutación.
 
 ## Evolución, habilidades y economía
+
+La nave comienza a 225 px/s (7,5 px por tick). `BASE_SPEED` y
+`BASE_ACCELERATION` en `client/js/movement.js` controlan el movimiento compartido;
+la aceleración escala con la velocidad máxima para alcanzar también las mejoras
+sin que la fricción las anule. El reinicio gratuito conserva esta velocidad base.
 
 Cada pieza de chatarra concede 10 XP y una baja concede 100 XP. Para subir se
 consumen `floor(100 × nivel^1.4)` XP y se conserva el excedente. Los primeros costes
@@ -395,7 +402,7 @@ al rival más cercano dentro de 400 px, además de las escoltas recolectadas.
 | --- | --- | --- | --- |
 | Shift / clic derecho | Turbo ×2,8 y protección de daño | 250 ms | 3 s |
 | Q | Escudo inmune a todo daño | 2 s | 12 s |
-| E | EMP, radio 350 px: ralentiza e impide disparar | 1,5 s | 15 s |
+| R | EMP, radio 350 px: ralentiza e impide disparar | 1,5 s | 15 s |
 
 Los impactos añaden una pausa visual breve y sacudida ligera; las explosiones
 pesadas usan una sacudida mayor. Los proyectiles emiten estelas de 150 ms.
@@ -442,3 +449,235 @@ mutaciones, cámara, anuncios y resurrección. Los anuncios reales se validan en
 vista previa del portal. Las API de RAF y TileSprite siguen la documentación de
 [Phaser TimeStep](https://docs.phaser.io/api-documentation/class/core-timestep) y
 [TileSprite](https://docs.phaser.io/phaser/concepts/gameobjects/tile-sprite).
+
+## Gemas, recuperación y eventos de mundo
+
+`server/worldEvents.js` mantiene el estado dentro de cada sala. Comparte la fase
+del calendario del proceso con todas las salas, y se actualiza desde el tick
+existente a 30 Hz: no crea un intervalo por gema ni timers que sobrevivan a una
+sala. Los jugadores de salas privadas no reciben eventos ni coordenadas de otras
+salas. El mapa sigue usando coordenadas positivas de 0 a 4000.
+
+- **Gemas de XP:** cada nave destruida dispersa 24 gemas; los drones también
+  dispersan 24 con 20 XP totales. Aplican fricción 0,92 durante 300 ms y luego
+  buscan al jugador vivo más cercano en 250 px mediante una rejilla espacial.
+  La aceleración es `clamp(1200 × (1 − distancia/250)^2, 200, 1200)` px/s².
+  El sonido aumenta 0,05 por recogida hasta pitch 2,2, y reinicia tras 1,5 s.
+- **Energy Core:** contiene `floor(totalXp × 0.5)` de la vida terminada; `xp` es
+  solo el residuo de un nivel y no se usa como XP acumulada. El resto se reparte
+  entre las gemas de la explosión. El núcleo dura 45 s, cualquiera puede robarlo
+  y su propietario ve una flecha al reaparecer con distancia en metros (10 px/m).
+  Recuperarlo muestra PROGRESS RECOVERED y reproduce un sonido especial.
+- **Narrow Escape:** tras recibir daño y quedar por debajo del 10% de HP,
+  sobrevivir tres segundos sin daño o eliminar al atacante concede 200 XP una
+  sola vez por activación. La viñeta pulsa entre alfa 0,2 y 0,6. La ralentización
+  visual de 500 ms afecta animaciones, nunca la simulación ni la predicción.
+- **Bounty:** nivel 40 o racha de diez bajas anuncian una recompensa de 5000
+  monedas. La posición se envía en snapshots para los indicadores de calavera.
+  El golpe final concede el premio y avisa a la sala. Morir o salir retira la
+  cacería; otro cumplimiento posterior puede emitir una nueva.
+- **Gold Tide:** cada cuatro minutos, con aviso 15 s antes, aparecen 15
+  asteroides dorados en el cuadrante jugable a menos de 600 px de `(0,0)`.
+  Tienen 300 HP frente a los 100 del asteroide normal. Dan 500 XP/50 monedas,
+  frente a 100 XP/10 monedas, en gemas físicas. La siguiente tormenta reemplaza
+  los meteoritos dorados restantes. Los cañones atacan asteroides próximos cuando
+  no encuentran naves o jefe dentro de alcance.
+- **Leviathan:** cada diez minutos aparece en `(2000,2000)` con 12.000 HP.
+  Patrulla a 35 px/s, pasa a agresión ante jugadores a 800 px y dispara 24
+  proyectiles radiales cada tres segundos. Su barra se muestra dentro de 1000 px.
+  El premio total es 10.000 XP/5000 monedas: el 60% se reparte proporcionalmente
+  al daño efectivo, con restos enteros conservados; el 40% cae en 30 gemas. Si
+  un contribuyente sigue en la sala pero está muerto, conserva su XP pendiente
+  para la siguiente reaparición. Salir de la sala elimina su entidad y sus
+  premios pendientes: no hay cuenta ni almacén de recompensas offline.
+
+Los títulos persistentes son **Space Terror** (cacería), **Leviathan Slayer**
+(golpe final al jefe) y **Dominator** (primer puesto). Se muestran en las placas
+de nombre y en los primeros cinco puestos de la clasificación. La tienda añade
+Frost Shatter (900 monedas), Black Hole (1800) y Neon Graffiti (1200). Las compras,
+títulos y efecto equipado se guardan junto al perfil local y se envían al servidor
+como cosméticos. Frost congela y fragmenta la nave; Black Hole absorbe partículas
+en espiral; Neon Graffiti deja una marca durante diez segundos.
+
+Los premios de monedas llegan como recibos fiables `coin_reward` y también
+permanecen en el snapshot del jugador hasta `ackCoinReward`. El navegador guarda
+el premio antes de confirmar, agrupando ráfagas en una escritura cada 100 ms para
+evitar bloquear el render, con una secuencia persistente por sala que impide
+duplicarlo. Esto mantiene la economía existente en localStorage; no protege un
+saldo contra modificaciones del navegador ni lo sincroniza entre dispositivos.
+
+El snapshot v2 añade `w.g` (gemas), `w.c` (núcleos), `w.q` (cacerías), `w.boss`
+y el tiempo hasta la siguiente tormenta. Son arrays de primitivas, completos
+y resistentes a pérdida de snapshots volatile. Gemas limitadas a 360 por sala,
+núcleos a 64, proyectiles a 240 y recibos pendientes a 64 con reserva consolidada.
+El cliente reutiliza imágenes, textos y partículas, limita voces de audio a seis
+y efectos simultáneos, y libera los objetos al cambiar de sala o cerrar la escena.
+
+Para QA visual de eventos sin esperar el calendario real:
+
+```bash
+npm run preview -- --events
+```
+
+Este comando precarga exclusivamente `tools/event-preview.cjs`: crea un jefe de
+300 HP, objetos de prueba y premios de muestra en el backend local. Docker y
+`npm start` usan los valores de producción y nunca cargan esta fixture. Los
+anuncios y su pausa/silencio mantienen la integración CrazyGames existente.
+
+
+## PvP competitivo: Némesis, KotH, parry y suministros
+
+El servidor decide las colisiones, premios, temporizadores y buffs por sala. El cliente
+reconstruye estados completos a 30 Hz desde keyframes y deltas y usa el mismo modelo de movimiento para predecir
+el multiplicador de venganza, incluyendo su vencimiento durante el replay de entradas.
+La integración de anuncios y los eventos `gameplayStart/gameplayStop` se mantienen.
+
+- **Némesis:** dos eliminaciones consecutivas del mismo rival asignan su ID a la víctima.
+  Una eliminación en sentido contrario reinicia la cuenta; destruir a tu Némesis concede
+  1500 XP una sola vez y transmite `NEMESIS_DESTROYED`. Tras revivir con una Némesis
+  conectada, se conceden 3000 ms de invulnerabilidad y velocidad ×1.5, con timer cancelable
+  y deadline autoritativo. Si el vencedor también muere, sus XP quedan pendientes para
+  la siguiente vida. Desconectar elimina referencias y contadores de esa identidad.
+- **KotH:** círculo de radio 400 en `(0, 0)`, respetando las coordenadas solicitadas.
+  Puesto que el mapa ocupa `[0,4000] × [0,4000]`, su región jugable está en la esquina
+  superior izquierda. Los ocupantes vivos ganan 50 XP y 5 monedas por segundo.
+  Salir o morir reinicia el tiempo continuo. El líder se anuncia cada 2 segundos;
+  empates se resuelven por ID. Los intervalos conservan su fase sin acumular premios
+  durante una pausa del proceso.
+- **Parry:** tecla **F** o botón táctil, ventana de 300 ms y recarga de 5 segundos.
+  La colisión recorre el segmento del disparo y refleja su velocidad exactamente ×−2,
+  cambia propietario/color y duplica su daño. Cada disparo admite hasta seis rebotes
+  para acotar la amplificación. La confirmación activa chispas, onda radial y audio
+  metálico que respeta silencio y anuncios.
+- **Suministros:** un pod de 1500 HP cada 90 segundos, a ≥800 px del origen y fuera
+  de asteroides. Hay un máximo de un pod activo por sala: el siguiente reemplaza al
+  anterior. Destruirlo concede al vencedor vivo un buff aleatorio durante 15 segundos;
+  morir elimina el buff. `DOUBLE_FIRE_RATE` divide por dos el intervalo de disparo;
+  `PIERCING_LASERS` atraviesa naves y escoltas, dañando una vez a cada entidad por bala;
+  `MIRROR_SHIELD` refleja impactos con la misma regla que parry. Un nuevo buff reemplaza
+  al anterior. Los proyectiles perforantes resuelven hasta 64 impactos por tick.
+
+`server/competitive.js` gestiona el estado por sala; `client/js/competitive.js` presenta
+zona, calavera pulsante, flechas, barras de HP y avisos. El snapshot incluye
+`competitive.pods` (arrays primitivos) y `competitive.leader`; la metadata de jugador
+incluye Némesis, tiempos restantes y tipo de buff. Es compatible con snapshots antiguos.
+Todos los timers de venganza se cancelan al morir, abandonar o destruir la sala; los
+handlers, objetos de Phaser, tweens y elementos DOM se limpian al terminar la escena.
+
+Verificación: `npm test`. Prueba visual acelerada y aislada:
+
+```sh
+npm run preview -- --pvp
+```
+
+Abre la URL local indicada y crea una sala privada. Esta fixture coloca al piloto en la
+zona y añade una Némesis, un pod y buffs de prueba. Solo se carga con `--pvp`:
+`npm start` y Docker mantienen los intervalos y premios de producción.
+
+
+## Movilidad, peligros y sinergias de combate
+
+`server/hazards.js` concentra el estado por sala, el grid de explosiones y los deadlines.
+`client/js/hazards.js` renderiza espirales, materia oscura, ondas y el HUD de combos.
+`wormholePairs` es una geometría global inmutable con dos pares bidireccionales:
+`(700,700) ↔ (3300,3300)` y `(700,3300) ↔ (3300,700)`, radio 60.
+
+- **Slingshot:** las naves duplican su velocidad al entrar y disponen de un límite de
+  motor ×2 durante 1 segundo. Los proyectiles conservan dirección y aumentan velocidad
+  y daño ×1.25. El cooldown es de 500 ms por entidad, con claves de tipo e ID para
+  evitar colisiones entre naves y disparos. Además, una llegada debe salir del círculo
+  de destino antes de volver a entrar; quedarse quieto no produce saltos repetidos.
+  Los proyectiles usan intersecciones de segmento y resuelven los impactos del recorrido
+  restante en el destino, sin atravesar físicamente el mapa entre los portales.
+- **Sincronización de saltos:** `WORMHOLE_TRAVERSE` incluye revisión y estado autoritativo.
+  La revisión reinicia predicción/interpolación al cambiar de posición; los snapshots
+  permiten recuperarse incluso si falta un efecto. Las entradas anteriores al salto
+  se descartan y las nuevas incluyen la revisión. No se suaviza un salto de miles de
+  píxeles como si fuera un error ordinario. Las estelas duran 1 segundo y comparten un
+  emisor de 240 partículas con un máximo de 32 objetos seguidos.
+- **Supernova:** cada 180 segundos de calendario de sala se selecciona un sector fuera
+  de la zona central del mapa. Aviso de 5 s sin fuerzas; actividad de 10 s con radio 500,
+  aceleración `clamp(12000/(dist+10)^2,50,900)` y daño de 40 HP/s en el núcleo de radio 80;
+  disipación de 2 s con un único impulso radial de 600 px/s. Mantiene las protecciones
+  de daño existentes. Las fases tienen deadlines y no acumulan ráfagas por retrasos del
+  proceso. El efecto de materia oscura reutiliza 48 imágenes; el aviso usa un único
+  objeto Graphics y su tween se cancela al cambiar de fase/sala.
+- **Plasma volátil:** ocho asteroides rojos de 200 HP por sala, repuestos cada 30 s hasta
+  ese límite. Las salidas de portales se mantienen libres. Una explosión de radio 300
+  aplica `150*(1-dist/300)` de daño y `800*(1-dist/300)` px/s de impulso. El grid de celdas
+  de 300 px limita las consultas a actores cercanos; asteroides volátiles alcanzados
+  tienen destrucción programada a +100 ms, conservando atribución del atacante. La cola
+  usa el tick del servidor y no crea temporizadores independientes ni duplica estallidos.
+- **Kill chain:** máximo 5 stacks. Cada baja renueva 10 s; después se pierde un stack
+  cada 2 s. La cadencia usa un factor `1-count*.05`, y la velocidad `1+count*.03`.
+  Los deadlines de disparo son fraccionarios para conservar la mejora media a 30 Hz,
+  especialmente con un solo stack. La muerte reinicia la cadena. `COMBO_UPDATE` notifica
+  las transiciones; el snapshot transporta contador y tiempo para incorporación tardía.
+
+Las velocidades del motor están en px/tick. Las fuerzas descritas en px/s o px/s² se
+convierten una sola vez al integrar. Los impulsos se mantienen separados del motor,
+se amortiguan y no desaparecen por aplicar su límite de velocidad. Predicción y replay
+usan el mismo modelo para gravedad, combos y amortiguación. Los snapshots incorporan
+`hazards`, metadata de movimiento y revisión de proyectiles, conservando compatibilidad
+con estados antiguos. Se mantienen PvP, mutaciones, resurrección y CrazyGames SDK v3.
+
+Los estados personales se reinician al morir; las referencias a entidades ausentes se
+purgan en el siguiente tick, y las colas/mapas se liberan al destruir la sala. Los efectos de
+explosión comparten una onda, tienen límite de frecuencia y respetan silencio/anuncios.
+No hay un emisor nuevo por cada frame ni timers de reacción pendientes tras destruir salas.
+
+Prueba visual aislada:
+
+```sh
+npm run preview -- --hazards
+```
+
+Crea una sala privada en la URL local. El modo de prueba adelanta una supernova, coloca
+plasma cercano, concede stacks y fuerza un salto de demostración. Solo se precarga con
+`--hazards`; `npm start` y Docker utilizan la configuración normal. Verificación: `npm test`.
+
+
+## Suite cyber-neon y Drone Swarm Blitz
+
+- `client/js/cyber.js`: bloom compartido de cámara (dos pasadas), aberración cromática
+  transitoria, retícula de perspectiva cian/magenta y zoom amortiguado entre 1.2 y 0.75.
+  Se mide densidad visible cada 100ms; la amortiguación usa delta y conserva el mismo
+  resultado a 60, 120 y 144Hz. API de efectos: https://docs.phaser.io/phaser/concepts/fx.
+- Los impactos críticos (vida restante <=25%) y bajas del jugador local congelan
+  únicamente la presentación durante 30ms, con sacudida 0.015 durante 150ms.
+  Socket.io, acumulador de predicción, envío de controles y física autoritativa siguen
+  funcionando. No se detiene la escena ni se descartan milisegundos de movimiento.
+- **E / botón circular ENJAMBRE**: drones a 900px/s, ataque de 3s, un impacto de 75
+  por dron, recarga autoritativa de 8s y retorno con factor 0.15 por tick. Las colisiones
+  usan segmentos barridos y un hash espacial de 128px. La orientación de lanzamiento
+  se conserva aunque el piloto gire. **EMP se mantiene en R**, parry en F.
+- `server/swarm.js` aporta 2 drones tácticos en chasis 1, 3 en chasis 2 y 4 en chasis
+  3/4 (niveles de evolución 10/25/40). También lanza escoltas ganadas. Los drones de
+  chasis se guardan en `tacticalDrones` para que `drones` conserve su significado de
+  flota adquirida: reiniciar pierde las escoltas y revivir con anuncio conserva
+  exactamente la mitad. Los objetos tácticos se reciclan en un pool limitado a 256.
+- Las estelas de drones comparten un emisor con 256 partículas y presupuesto de 32
+  drones visibles por actualización. Los láseres usan otro emisor compartido de 192
+  partículas, evitando emisores y temporizadores por cada disparo. El audio original
+  `client/assets/audio/drone_launch.wav` se sirve localmente y respeta anuncios/silencio.
+- Parry refleja desde un cono frontal de 120 grados; MIRROR_SHIELD conserva reflexión
+  omnidireccional. El HUD de Leviathan muestra su vida global durante la partida.
+
+### Protocolo de red v3 y pérdida de paquetes
+
+El servidor sigue a 30Hz. Una vez por segundo envía un keyframe v2 completo por canal
+fiable. Entre keyframes transmite deltas v3 relativos a esa misma base: cambios por ID
+para jugadores, chatarra, proyectiles y obstáculos, y campos modificados de las tuplas
+primitivas. Cada delta contiene todas las diferencias respecto a la base; perder uno
+no afecta la reconstrucción del siguiente. No se encadenan deltas volátiles.
+
+`FleetNetwork.Decoder` conserva una sola base inmutable, verifica sala/base y solicita
+`requestSnapshot` si falta. El servidor limita estas recuperaciones a dos por segundo.
+Las entradas y salidas de sala limpian estados visuales y las nuevas bases reemplazan
+las anteriores. Los anuncios y las mutaciones siguen con sus validaciones existentes.
+
+Ejecutar `npm test` para las comprobaciones de predicción, Socket.io real, estados de
+los drones, cooldown, daño único, muerte/resurrección, pérdida de paquetes y zoom/impactos.
+`npm run preview` abre el cliente con un backend local sin cambiar `client/config.js`.
+La medida de FPS del modo `?debug=1` es una observación local, no una garantía para
+cualquier GPU, móvil, conexión o cantidad de jugadores en producción.

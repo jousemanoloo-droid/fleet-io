@@ -78,6 +78,8 @@
   class GameScene extends Phaser.Scene {
     constructor() {
       super('GameScene');
+      this._decoder = new window.FleetNetwork.Decoder();
+      this._resyncAt = -Infinity;
       this._stars = [];
       this._playerSprites = new Map();
       this._droneSprites = new Map();
@@ -107,7 +109,7 @@
       camera.setPosition(0, 0);
       camera.setOrigin(0.5, 0.5);
       camera.setBounds(0, 0, C.world.width, C.world.height);
-      camera.setBackgroundColor('#03040c');
+      camera.setBackgroundColor('#000000');
       this.input.on('pointermove', this._onPointerMove, this);
       this.events.once('shutdown', () => {
         this.input.off('pointermove', this._onPointerMove, this);
@@ -128,6 +130,10 @@
       setupUI();
       this._setupDeathUI();
       if (window.FleetFeatures) this._features = new window.FleetFeatures.Features(this, C, syncGameplayTracking);
+      if (window.FleetRetention) this._retention = new window.FleetRetention.Retention(this, C);
+      if (window.FleetCompetitive) this._competitive = new window.FleetCompetitive.Competitive(this,C);
+      if (window.FleetHazards) this._hazards = new window.FleetHazards.Hazards(this,C);
+      this._cyber = new window.FleetCyber.Cyber(this, C);
     }
 
     _setupAdHooks() {
@@ -137,6 +143,7 @@
           previousMute = this.sound?.mute || false;
           if (this.sound) this.sound.mute = true;
           this._features?.setMuted(true);
+          this._cyber?.audio.pause();
           pausedByAd = this.scene.isActive();
           if (pausedByAd) this.scene.pause();
         },
@@ -278,6 +285,12 @@
         scale: { start: 0.35, end: 0 }, alpha: { start: 0.5, end: 0 },
         blendMode: Phaser.BlendModes.ADD, maxParticles: 32, maxAliveParticles: 32,
       }).setDepth(2);
+      this._laserTrail = this.add.particles(0, 0, 'fleet-plasma', {
+        emitting: false, lifespan: 150, speed: 0, tint: 0x00ffff,
+        scale: { start: 0.22, end: 0 }, alpha: { start: 0.5, end: 0 },
+        blendMode: Phaser.BlendModes.ADD, maxParticles: 192, maxAliveParticles: 192,
+      }).setDepth(4);
+      this._laserTrailAt = 0;
       this._lastThrustAt = -Infinity;
       this._hudPulses = new Map();
       this.events.once('shutdown', () => {
@@ -519,6 +532,7 @@
         if (me.id !== C.myId) return;
         C.playerStates.set(me.id, me);
         this._features?.begin(me);
+        this._retention?.sync(me);
         this._syncLocalState(me);
       });
 
@@ -535,8 +549,16 @@
 
     _onSnapshot(snap) {
       if (snap.roomId && snap.roomId !== C.room?.roomId) return;
+      const decoded = this._decoder.receive(snap);
+      if (!decoded) {
+        const now = performance.now();
+        if (now - this._resyncAt > 500) {
+          this._resyncAt = now; C.socket.emit('requestSnapshot', { roomId: C.room?.roomId });
+        }
+        return;
+      }
       if (snap.t <= C.tick && C.lastServerTime) return;
-      snap = window.FleetNetwork.decode(snap);
+      snap = decoded;
       const now = performance.now();
       C.lastServerTime = now;
       C.tick = snap.t;
@@ -546,11 +568,16 @@
       const scrapsSnap = snap.s || [];
       const respawnedPlayers = new Set();
       this._obstacles = snap.o || [];
+      this._retention?.snapshot(snap);
+      this._competitive?.snapshot(snap);
+      this._hazards?.snapshot(snap);
       const shots = new Set();
       for (const shot of snap.b || []) {
         shots.add(shot.id);
         const current = { ...shot, t: now };
-        const queue = this._projectileStates.get(shot.id) || [];
+        let queue = this._projectileStates.get(shot.id) || [];
+        if (queue.length && (shot.motionRevision || 0) < (queue.at(-1).motionRevision || 0)) continue;
+        if (queue.length && (shot.motionRevision || 0) !== (queue.at(-1).motionRevision || 0)) queue=[];
         queue.push(current);
         if (queue.length > 5) queue.shift();
         this._projectileStates.set(shot.id, queue);
@@ -575,6 +602,7 @@
       for (const p of players) {
         const previous = C.playerStates.get(p.id);
         if (previous && previous.hp <= 0 && p.hp > 0) respawnedPlayers.add(p.id);
+        if (p.id === C.myId && previous && p.hp > 0 && p.hp < previous.hp && p.hp / p.maxHp <= 0.25) this._cyber?.impact();
         if (previous && previous.hp > 0) {
           if (typeof p.hp === 'number' && p.hp <= 0) {
             this._explodePlayer(p.id, previous);
@@ -589,6 +617,7 @@
             }
           }
         }
+        if ((p.motionRevision || 0) < (C.playerStates.get(p.id)?.motionRevision || 0)) continue;
         const state = {
           ...p,
           id: p.id,
@@ -602,7 +631,7 @@
           vx: p.vx || 0,
           vy: p.vy || 0,
           rotation: p.rotation ?? Math.atan2(p.vy || 0, p.vx || 1),
-          maxSpeed: p.maxSpeed || 4.5,
+          maxSpeed: p.maxSpeed || window.FleetMovement.BASE_SPEED,
           inputSeq: p.inputSeq || 0,
           drones: p.drones || [],
           hp: typeof p.hp === 'number' ? p.hp : 100,
@@ -613,23 +642,24 @@
           deathId: p.deathId,
           deathState: p.deathState,
           mutations: p.mutations || [],
-          receivedAt: now,
+          receivedAt: now, motionRevision:p.motionRevision || 0,
         };
         C.playerStates.set(p.id, state);
       }
 
       if (!C._prevStates) C._prevStates = new Map();
       for (const p of players) {
+        if ((p.motionRevision || 0) < (C.playerStates.get(p.id)?.motionRevision || 0)) continue;
         const prevSnap = {
           x: p.x,
           y: p.y,
           vx: p.vx || 0,
           vy: p.vy || 0,
           rotation: p.rotation ?? Math.atan2(p.vy || 0, p.vx || 1),
-          drones: [...(p.drones || []), ...(p.orbitalDrones || [])].map(d => ({ id: d.id, x: d.x, y: d.y, autonomous: !!d.autonomous })),
-          t: now,
+          drones: [...(p.drones || []), ...(p.orbitalDrones || []), ...(p.tacticalDrones || [])].map(d => ({ id: d.id, x: d.x, y: d.y, state:d.state, rotation:d.rotation, tactical:!!d.tactical, autonomous: !!d.autonomous })),
+          t: now, motionRevision:p.motionRevision || 0,
         };
-        if (C._prevStates.has(p.id) && !respawnedPlayers.has(p.id)) {
+        if (C._prevStates.has(p.id) && !respawnedPlayers.has(p.id) && C._prevStates.get(p.id).at(-1).motionRevision === (p.motionRevision || 0)) {
           const last = C._prevStates.get(p.id);
           last.push(prevSnap);
           if (last.length > 5) last.shift();
@@ -764,19 +794,25 @@
     }
 
     update(time, delta) {
-      if (!C.joined) return;
+      if (!C.joined) { this._cyber?.idle(); return; }
       const now = performance.now();
       this._features?.update(now);
-      if (now < (this._hitStopUntil || 0)) return;
+      this._retention?.update(now, delta);
+
       C._renderTick++;
       window.FleetRenderer?.metrics(this, now);
-      this._visualTime += Math.min(delta, 100) / 1000;
+      // Slowdown visual de escape: nunca altera delta de predicción ni ticks.
+      this._visualTime += Math.min(delta, 100) / 1000 * (now < (this._retention?.slowUntil || 0) ? 0.5 : 1);
 
       // Transformar el ratón con la cámara de la vista actualmente mostrada.
       this._handleInput(now, delta);
       this._interpolateEntities(now);
       this._predictLocal(delta);
-      this._render();
+      const frozen = now < (this._hitStopUntil || 0);
+      if (!frozen) this._render();
+      this._cyber?.update(now, delta, frozen);
+      this._competitive?.update(now);
+      this._hazards?.update(now);
       // Phaser actualiza el seguimiento al preparar la cámara para renderizar,
       // después de colocar el contenedor en la posición interpolada de este frame.
       this._followCamera();
@@ -983,13 +1019,13 @@
       const target = blocked ? { tx: p.x, ty: p.y } : { tx: C.targetWorld.x, ty: C.targetWorld.y };
       const result = this._prediction.advance(delta, target, C.world, this._obstacles, input => {
         const command = { tx: Math.round(input.tx), ty: Math.round(input.ty), seq: ++this._inputSeq,
-          roomId: C.room?.roomId, deathId: this._prediction.state.deathId };
+          roomId: C.room?.roomId, deathId: this._prediction.state.deathId, motionRevision:this._prediction.state.motionRevision || 0 };
         C.socket.emit('playerMove', command);
         return command;
       });
       const current = C.renderState.get(C.myId) || { drones: [] };
       const dx = result.x - current.x, dy = result.y - current.y;
-      for (const drone of current.drones) { drone.x += dx; drone.y += dy; }
+      for (const drone of current.drones) { if (drone.state !== 'ATTACK' && drone.state !== 'RETURNING') { drone.x += dx; drone.y += dy; } }
       Object.assign(current, result);
       C.renderState.set(C.myId, current);
     }
@@ -1015,6 +1051,7 @@
           if (!cur.drones[i]) cur.drones[i] = {};
           cur.drones[i].id = bi.id;
           cur.drones[i].autonomous = !!bi.autonomous;
+          cur.drones[i].state = bi.state; cur.drones[i].rotation = bi.rotation; cur.drones[i].tactical = bi.tactical;
           cur.drones[i].x = ai.x + (bi.x - ai.x) * t;
           cur.drones[i].y = ai.y + (bi.y - ai.y) * t;
         }
@@ -1045,11 +1082,16 @@
           this._obstacleSprites.set(o.id, sprite);
         }
         visible(sprite, o.x, o.y, o.radius + 80);
+        if (sprite.setTint) sprite.setTint(o.volatile ? 0xff3348 : o.gold ? 0xffcf50 : 0xffffff);
       }
       for (const [id, sprite] of this._obstacleSprites) if (!obstacleIds.has(id)) {
         sprite.destroy(); this._obstacleSprites.delete(id);
       }
-      const renderTime = performance.now() - INTERP_BUFFER_MS;
+      const now = performance.now();
+      const renderTime = now - INTERP_BUFFER_MS;
+      const emitTrails = now >= this._laserTrailAt && now >= (this._hitStopUntil || 0);
+      if (emitTrails) this._laserTrailAt = now + 35;
+      let trailBudget = 32;
       for (const [id, queue] of this._projectileStates) {
         const { a, b, t } = window.FleetNetwork.sample(queue, renderTime);
         let sprite = this._laserSprites.get(id);
@@ -1061,21 +1103,11 @@
         sprite.x = a.x + (b.x - a.x) * t; sprite.y = a.y + (b.y - a.y) * t;
         sprite.rotation = b.rotation ?? Math.atan2(b.y - a.y, b.x - a.x);
         visible(sprite, sprite.x, sprite.y);
-        // Emitter por proyectil visible, acotado a seis partículas y 150 ms.
-        if (sprite.visible && this._features && !sprite._trail) {
-          sprite._trail = this.add.particles(0, 0, 'fleet-plasma', {
-            frequency: 35, lifespan: 150, speed: 0, tint: b.c,
-            scale: { start: 0.22, end: 0 }, alpha: { start: 0.5, end: 0 },
-            blendMode: Phaser.BlendModes.ADD, maxParticles: 6, maxAliveParticles: 6,
-          }).setDepth(4).startFollow(sprite);
+        if (sprite.visible && emitTrails && trailBudget-- > 0) {
+          this._laserTrail.setParticleTint(b.c); this._laserTrail.emitParticleAt(sprite.x, sprite.y, 1);
         }
-        if (sprite._trail) sprite.visible ? sprite._trail.start() : sprite._trail.stop();
       }
       for (const [id, sprite] of this._laserSprites) if (!this._projectileStates.has(id)) {
-        if (sprite._trail) {
-          const trail = sprite._trail; trail.stopFollow(); trail.stop();
-          this.time.delayedCall(150, () => trail.destroy());
-        }
         sprite.destroy(); this._laserSprites.delete(id);
       }
     }
@@ -1143,16 +1175,24 @@
       const label = cont.getByName('name');
       label.y = id === C.kingId ? -62 : -38;
       const name = (meta.name || 'Piloto').slice(0, 16);
-      if (label.text !== name) label.setText(name);
+      const title = meta.titles?.includes('Leviathan Slayer') ? 'Leviathan Slayer' :
+        meta.titles?.includes('Space Terror') ? 'Space Terror' : meta.titles?.includes('Dominator') ? 'Dominator' : '';
+      const badge = title === 'Space Terror' ? '☠' : title === 'Leviathan Slayer' ? '✦' : '♛';
+      const nameplate = title ? `${badge} ${title}\n${name}` : name;
+      if (label.text !== nameplate) label.setText(nameplate);
       const body = cont.getByName('body');
       const texture = 'ship-' + team + '-' + (meta.chassis || 1);
       if (body._chassisTexture !== texture) { body.setTexture(texture); body._chassisTexture = texture; }
       body.setScale(meta.chassis === 4 ? 0.85 : meta.chassis === 3 ? 0.7 : meta.chassis === 2 ? 0.6 : 0.55);
-      body.setTint(window.FleetFeatures?.SKIN_COLORS[meta.skin] || 0xffffff);
+      body.setTint(isMe && meta.isInvulnerable ? 0x00ffff : window.FleetFeatures?.SKIN_COLORS[meta.skin] || 0xffffff);
+      if (isMe && meta.isInvulnerable && !body._revengeTween) {
+        body._revengeTween = this.tweens.add({targets:body,alpha:.4,duration:180,yoyo:true,repeat:-1});
+      } else if (!meta.isInvulnerable && body._revengeTween) { body._revengeTween.stop();body._revengeTween=null;body.setAlpha(1); }
       cont.getByName('crown').setVisible(id === C.kingId);
       body.rotation = renderPos.rotation ?? Math.atan2(meta.vy || 0, meta.vx || 1);
       const shield = cont.getByName('shield');
-      shield.setVisible(isMe || meta.invulnerable || meta.shielded);
+      shield.setVisible(isMe || meta.invulnerable || meta.shielded || meta.isParrying || meta.supplyBuff === 'MIRROR_SHIELD');
+      shield.setTint(meta.isParrying ? 0x00ffff : 0xffffff);
       shield.setScale(meta.shielded ? 0.9 + Math.sin(this._visualTime * 8) * 0.1 : 0.6);
       shield.alpha = meta.invulnerable ? 0.65 + Math.sin(this._visualTime * 5) * 0.2 : 0.4;
       this._renderDrones(id, renderPos, meta, team);
@@ -1169,7 +1209,7 @@
       for (let i = 0; i < drones.length; i++) {
         const sprite = container.list[i], drone = drones[i];
         sprite.x = drone.x - renderPos.x; sprite.y = drone.y - renderPos.y;
-        sprite.rotation = Math.atan2(sprite.y, sprite.x) + Math.PI / 2;
+        sprite.rotation = drone.state === 'ATTACK' ? (drone.rotation || 0) + Math.PI / 2 : Math.atan2(sprite.y, sprite.x) + Math.PI / 2;
         sprite.setScale(drone.autonomous ? 0.28 : 0.18);
       }
     }
@@ -1193,6 +1233,8 @@
         this._cameraTarget = null;
       }
       if (cont) {
+        const body = cont.getByName('body');
+        if (body?._revengeTween) this.tweens.killTweensOf(body);
         cont.destroy();
         this._playerSprites.delete(id);
       }
@@ -1399,10 +1441,13 @@
     const score = p.score || 0;
     const rankClass = rank <= 3 ? `r${rank}` : '';
     const medalGlyph = rank === 1 ? '1' : rank === 2 ? '2' : rank === 3 ? '3' : String(rank);
+    const titles = rank <= 5 ? (p.titles || []).filter(title => ['Space Terror', 'Leviathan Slayer', 'Dominator'].includes(title)) : [];
+    const titleHTML = titles.length ? `<small class="lb-title">${escapeHtml(titles.map(title =>
+      `${title === 'Space Terror' ? '☠' : title === 'Leviathan Slayer' ? '✦' : '♛'} ${title}`).join(' · '))}</small>` : '';
     return `
       <span class="lb-rank ${rankClass}">${rank}.</span>
       <span class="lb-medal ${rankClass}">${medalGlyph}</span>
-      <span class="lb-name" title="${name}">${name}</span>
+      <span class="lb-name" title="${name}">${name}${titleHTML}</span>
       <span class="lb-score">${score.toLocaleString()}</span>
     `;
   }

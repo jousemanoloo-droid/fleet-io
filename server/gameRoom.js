@@ -25,6 +25,7 @@ class GameRoom {
       this.obstacles.set(id, { id, x: 300 + Math.random() * 3400,
         y: 300 + Math.random() * 3400, radius: 28 + Math.random() * 30 });
     }
+    this.hazards.seedPlasma();
     for (let i = 0; i < 150; i++) this.spawnScrap();
     if (type === 'singleplayer') {
       const names = ['Nexus', 'Vortex', 'Nyx', 'Atlas', 'Echo', 'Ion', 'Nova', 'Zenith', 'Flux', 'Orion'];
@@ -64,10 +65,13 @@ class GameRoom {
   }
 
   placePlayer(player) {
+    player.competitive = this.competitive;
+    player.swarm = this.swarm;
     // Reutilizar la búsqueda de spawn seguro sin conservar economía.
     player.die();
     player.respawn(false, this.players, this.world, this.obstacles);
     player.deathId = 0;
+    this.swarm.prepare(player);
   }
 
   addHuman(id, name) {
@@ -82,6 +86,10 @@ class GameRoom {
   }
 
   removeHuman(id) {
+    this.competitive.remove(id);
+    this.hazards.remove(id);
+    const leaving = this.players.get(id);
+    if (leaving) this.swarm.release(leaving);
     this.players.delete(id);
     for (const [key, shot] of this.projectiles) if (shot.ownerId === id) this.projectiles.delete(key);
     if (this.humanCount === 0) {
@@ -102,6 +110,10 @@ class GameRoom {
     if (this.destroyed) return;
     this.destroyed = true;
     this.loop.stop();
+    this.events.destroy();
+    this.competitive.destroy();
+    this.hazards.destroy();
+    this.swarm.destroy();
     this.players.clear(); this.scraps.clear();
     this.obstacles.clear(); this.projectiles.clear();
   }

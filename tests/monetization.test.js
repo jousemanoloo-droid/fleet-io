@@ -44,7 +44,7 @@ test('ordinary restart clears economy and mutations', () => {
   assert.equal(p.scrapCollected, 0);
   assert.equal(p.drones.length, 0);
   assert.equal(p.maxHp, 100);
-  assert.equal(p.maxSpeed, 4.5);
+  assert.equal(p.maxSpeed, 7.5);
   assert.deepEqual(p.mutations, []);
 });
 
@@ -128,6 +128,7 @@ test('socket handlers reject living, duplicate and stale requests; ignore client
       if (name === 'socket.io') return { Server: FakeIO };
       if (name === './entities') return require('../server/entities');
       if (name === './rpg') return require('../server/rpg');
+      if (name === './worldEvents') return require('../server/worldEvents');
       if (name === './gameLoop') return { GameLoop: class { start() {} } };
       if (name === './roomManager') return require('../server/roomManager');
       return require(name);
@@ -173,6 +174,14 @@ test('socket handlers reject living, duplicate and stale requests; ignore client
   assert.equal(result.ok, false, 'cooldown cannot be bypassed');
   handlers.claimDailyBoost({}, ack); assert.equal(result.ok, true);
   handlers.claimDailyBoost({}, ack); assert.equal(result.ok, false);
+  room.events.award(p, 5000, 'bounty');
+  const reward = p.coinRewards[0];
+  handlers.ackCoinReward({ roomId: 'old-room', id: reward.id });
+  assert.equal(p.coinRewards.length, 1);
+  handlers.ackCoinReward({ roomId: room.roomId, id: reward.id, coins: 999999 });
+  assert.equal(p.coinRewards.length, 0);
+  handlers.ackCoinReward({ roomId: room.roomId, id: reward.id });
+  assert.equal(p.coinRewards.length, 0, 'coin receipt acknowledgement is idempotent');
   const killer = new Player('killer', 'Killer'); killer.x = killer.y = 2000;
   room.players.set(killer.id, killer); room.obstacles.clear();
   p.shieldUntil = p.spawnProtectionUntil = 0;
