@@ -17,7 +17,7 @@
       if (p.comboTimer <= 1e-7) { p.comboCount--; p.comboTimer = p.comboCount ? 2 : 0; }
     }
     p.fireRateMultiplier = 1 - (p.comboCount || 0) * .05;
-    const synergy = p.moveSpeedMultiplier = 1 + (p.comboCount || 0) * 0.03;
+    const synergy = p.moveSpeedMultiplier = (1 + (p.comboCount || 0) * 0.03) * ((p.overdriveRemaining || 0) > 0 ? 1.35 : 1);
     const dx = target.tx - p.x, dy = target.ty - p.y;
     const distance = Math.hypot(dx, dy);
     if (distance > 2) {
@@ -45,6 +45,7 @@
     p.vx += p.kickAppliedX; p.vy += p.kickAppliedY;
     p.kickX = Math.abs(p.kickAppliedX) < .01 ? 0 : p.kickAppliedX * .9;
     p.kickY = Math.abs(p.kickAppliedY) < .01 ? 0 : p.kickAppliedY * .9;
+    p.overdriveRemaining = Math.max(0, (p.overdriveRemaining || 0) - STEP_MS);
     p.slingshotRemaining = Math.max(0,(p.slingshotRemaining || 0)-STEP_MS);
     p.teleportRemaining = Math.max(0,(p.teleportRemaining || 0)-STEP_MS);
     const radius = p.radius || 18;

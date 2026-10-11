@@ -72,7 +72,7 @@ function updateCombat(room, tick) {
       }
     }
     if (player.level === 40 && tick >= (player.nextOrbitalFireTick || 0)) {
-      player.nextOrbitalFireTick = tick + 12;
+      player.nextOrbitalFireTick = tick + (now < player.overdriveUntil ? 6 : 12);
       for (const drone of player.orbitalDrones) {
         const { enemy, distance } = nearest(player, drone, 400);
         if (enemy) fire(player, drone, enemy, distance);
@@ -96,7 +96,7 @@ function updateCombat(room, tick) {
       const boss=room.events?.boss;
       if (boss && boss.id !== shot.ownerId) consider(boss,boss.radius,'boss');
       for (const p of players) {
-        if (p.id === shot.ownerId || !p.alive || p.invulnerable || now < p.spawnProtectionUntil || now < p.revengeUntil) continue;
+        if (p.id === shot.ownerId || !p.alive || p.invulnerable || now < p.spawnProtectionUntil || now < p.revengeUntil || now < p.revengeShieldUntil) continue;
         consider(p,p.radius,'player');
         for (const drone of p.drones) {
           const t=shot.hitIds.has(drone.id) ? null : segmentHit(shot.x,shot.y,endX,endY,drone,8);
@@ -118,6 +118,7 @@ function updateCombat(room, tick) {
         shot.reflections=(shot.reflections || 0)+1;
         shot.vx = -2*shot.vx; shot.vy = -2*shot.vy;
         shot.ownerId=hit.id; shot.color=hit.color; shot.damage*=2;
+        shot.parryOwnerId = now < hit.parryUntil ? hit.id : null;
         shot.hitIds.clear(); shot.piercing=hit.supplyBuff === 'PIERCING_LASERS' && now < hit.supplyUntil;
         const length=Math.hypot(shot.vx,shot.vy) || 1;
         shot.x += shot.vx/length*(hit.radius+5); shot.y += shot.vy/length*(hit.radius+5);
@@ -127,7 +128,7 @@ function updateCombat(room, tick) {
       const attacker=room.players.get(shot.ownerId);
       if (impact === 'player') {
         const before=hit.hp, wasAlive=hit.alive;
-        hit.takeDamage(shot.damage,attacker);
+        hit.takeDamage(shot.damage,attacker,shot.parryOwnerId === attacker?.id);
         if (boss?.id === shot.ownerId && before > hit.hp) {
           hit.escapeThreat=boss.id;
           if (!hit.alive) hit.killedBy={id:boss.id,name:'Leviathan',chassis:4,skin:'gold',hpPercent:Math.round(boss.hp/boss.maxHp*100),score:0,streak:0,killEffect:'default'};

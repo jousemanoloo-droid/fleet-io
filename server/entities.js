@@ -190,6 +190,7 @@ class Player extends Entity {
       totalXp: this.totalXp, survivedMs: Date.now() - this.matchStartedAt,
     });
     this.hp = 0;
+    this.engagement?.fail(this, 'FAILED'); this.overdriveUntil = this.revengeShieldUntil = 0;
     this.competitive?.clearBuffs(this); this.kothTime = 0;
     this.alive = false;
     this.vx = this.vy = 0;
@@ -268,12 +269,13 @@ class Player extends Entity {
     return true;
   }
 
-  takeDamage(amount, attacker = null) {
-    if (!this.alive || this.invulnerable || Date.now() < this.revengeUntil || Date.now() < this.spawnProtectionUntil ||
+  takeDamage(amount, attacker = null, reflected = false) {
+    if (!this.alive || this.invulnerable || Date.now() < this.revengeUntil || Date.now() < this.revengeShieldUntil || Date.now() < this.spawnProtectionUntil ||
         Date.now() < this.dashUntil || Date.now() < this.shieldUntil ||
         !Number.isFinite(amount) || amount <= 0) return false;
     this.hp = Math.max(0, this.hp - amount);
     this.lastDamageAt = Date.now();
+    this.engagement?.damage(this, this.lastDamageAt);
     if (this.hp > 0 && this.hp / this.maxHp < 0.1) {
       this.escapePending = true; this.escapeThreat = attacker?.id || null;
     }
@@ -286,6 +288,7 @@ class Player extends Entity {
         this.killedBy = RPG.killerInfo(attacker);
       }
       this.die();
+      this.engagement?.kill(attacker, reflected);
     }
     return true;
   }
@@ -303,6 +306,7 @@ class Player extends Entity {
     // Detección de subida de nivel
     const previousLevel = this.level;
     RPG.addXP(this, scrap.value * Progression.XP_PER_SCRAP);
+    this.engagement?.collectedXP(this, scrap.value * Progression.XP_PER_SCRAP);
     if (this.level > previousLevel) {
       const milestone = Math.floor(this.level / 10) > Math.floor(previousLevel / 10);
       if (milestone) {

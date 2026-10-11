@@ -107,7 +107,7 @@
     sync(me) {
       for (const reward of me.coinRewards || []) this.reward(reward);
       for (const title of me.titles || []) this.features.economy.unlockTitle(title);
-      const low = me.hp > 0 && me.hp / me.maxHp < 0.1;
+      const low = me.hp > 0 && me.hp / me.maxHp < 0.1 && !me.overdriveRemaining;
       if (low && !this.pulse) {
         this.vignette.alpha = 0.2;
         this.pulse = this.scene.tweens.add({ targets: this.vignette, alpha: 0.6, duration: 450, yoyo: true, repeat: -1 });

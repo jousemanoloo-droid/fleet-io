@@ -55,7 +55,7 @@ test('camera follows the interpolated local container with positive lerp and fix
     }),
     graphics,
     image: () => ({ setScale() { return this; }, setVisible() { return this; }, setTexture() { return this; }, setTint() { return this; } }),
-    text: () => ({ text: '', setOrigin() { return this; }, setText(value) { this.text = value; } }),
+    text: () => ({ text: '', setColor() { return this; }, setOrigin() { return this; }, setText(value) { this.text = value; } }),
   };
   C.myId = 'local';
   const meta = { hp: 100, name: 'Local' };

@@ -68,6 +68,7 @@
   // ------------------------------------------------------------------
   class BootScene extends Phaser.Scene {
     constructor() { super('BootScene'); }
+    preload() { this.load.audio('overdrive-activate', 'assets/audio/overdrive_activate.wav'); }
     create() {
       this.scene.start('GameScene');
     }
@@ -134,6 +135,7 @@
       if (window.FleetRetention) this._retention = new window.FleetRetention.Retention(this, C);
       if (window.FleetCompetitive) this._competitive = new window.FleetCompetitive.Competitive(this,C);
       if (window.FleetHazards) this._hazards = new window.FleetHazards.Hazards(this,C);
+      if (window.FleetEngagement) this._engagement = new window.FleetEngagement.Engagement(this, C);
       this._cyber = new window.FleetCyber.Cyber(this, C);
       const unsubscribe = I.subscribe(() => {
         updateHUD();
@@ -223,7 +225,7 @@
       const playerId = C.myId;
       const roomId = C.room?.roomId;
       C.socket.timeout(8000).emit(
-        rewarded ? 'requestRewardedRespawn' : 'requestRespawn', { deathId, roomId },
+        rewarded ? 'request_revenge_respawn' : 'requestRespawn', { deathId, roomId },
         (error, result) => {
           if (!C.dead || C.deathId !== deathId || C.myId !== playerId || C.room?.roomId !== roomId) return;
           if (error || !result?.ok) {
@@ -576,6 +578,7 @@
       this._retention?.snapshot(snap);
       this._competitive?.snapshot(snap);
       this._hazards?.snapshot(snap);
+      this._engagement?.snapshot(snap);
       const shots = new Set();
       for (const shot of snap.b || []) {
         shots.add(shot.id);
@@ -818,6 +821,7 @@
       this._cyber?.update(now, delta, frozen);
       this._competitive?.update(now);
       this._hazards?.update(now);
+      this._engagement?.update(now);
       // Phaser actualiza el seguimiento al preparar la cámara para renderizar,
       // después de colocar el contenedor en la posición interpolada de este frame.
       this._followCamera();
@@ -1180,11 +1184,16 @@
       const label = cont.getByName('name');
       label.y = id === C.kingId ? -62 : -38;
       const name = (meta.name || I.t('pilot')).slice(0, 16);
-      const title = meta.titles?.includes('Leviathan Slayer') ? 'Leviathan Slayer' :
-        meta.titles?.includes('Space Terror') ? 'Space Terror' : meta.titles?.includes('Dominator') ? 'Dominator' : '';
-      const badge = title === 'Space Terror' ? '☠' : title === 'Leviathan Slayer' ? '✦' : '♛';
-      const nameplate = title ? M('ship.nameplate', { badge, title: M('title.' + title), name }) : name;
-      I.render(label, nameplate, 'phaserText');
+      const title = meta.equippedTitle && meta.titles?.includes(meta.equippedTitle) ? meta.equippedTitle : '';
+      I.render(label, name, 'phaserText');
+      let titleLabel = cont.getByName('title');
+      if (!titleLabel) {
+        titleLabel = this.add.text(0, -56, '', { fontFamily: 'system-ui', fontSize: '11px', fontStyle: 'bold', stroke: '#04101e', strokeThickness: 3 }).setOrigin(.5);
+        titleLabel.name = 'title'; cont.add(titleLabel);
+      }
+      I.render(titleLabel, title ? M('title.' + title) : '', 'phaserText');
+      titleLabel.y = label.y - 19;
+      titleLabel.setColor(title === 'Untouchable' ? '#92ffff' : title === 'Space Pirate' ? '#ffb3e1' : '#ffdc7c');
       const body = cont.getByName('body');
       const texture = 'ship-' + team + '-' + (meta.chassis || 1);
       if (body._chassisTexture !== texture) { body.setTexture(texture); body._chassisTexture = texture; }
@@ -1196,10 +1205,10 @@
       cont.getByName('crown').setVisible(id === C.kingId);
       body.rotation = renderPos.rotation ?? Math.atan2(meta.vy || 0, meta.vx || 1);
       const shield = cont.getByName('shield');
-      shield.setVisible(isMe || meta.invulnerable || meta.shielded || meta.isParrying || meta.supplyBuff === 'MIRROR_SHIELD');
-      shield.setTint(meta.isParrying ? 0x00ffff : 0xffffff);
+      shield.setVisible(isMe || meta.invulnerable || meta.shielded || meta.isParrying || meta.revengeShieldRemaining > 0 || meta.supplyBuff === 'MIRROR_SHIELD');
+      shield.setTint(meta.revengeShieldRemaining > 0 ? 0xffd454 : meta.isParrying ? 0x00ffff : 0xffffff);
       shield.setScale(meta.shielded ? 0.9 + Math.sin(this._visualTime * 8) * 0.1 : 0.6);
-      shield.alpha = meta.invulnerable ? 0.65 + Math.sin(this._visualTime * 5) * 0.2 : 0.4;
+      shield.alpha = meta.revengeShieldRemaining > 0 ? .8 : meta.invulnerable ? 0.65 + Math.sin(this._visualTime * 5) * 0.2 : 0.4;
       this._renderDrones(id, renderPos, meta, team);
     }
 
@@ -1446,7 +1455,7 @@
     const score = p.score || 0;
     const rankClass = rank <= 3 ? `r${rank}` : '';
     const medalGlyph = rank === 1 ? '1' : rank === 2 ? '2' : rank === 3 ? '3' : String(rank);
-    const titles = rank <= 5 ? (p.titles || []).filter(title => ['Space Terror', 'Leviathan Slayer', 'Dominator'].includes(title)) : [];
+    const titles = rank <= 5 ? (p.titles || []).filter(title => ['Space Terror', 'Leviathan Slayer', 'Dominator', 'Space Pirate', 'Untouchable'].includes(title)) : [];
     const titleHTML = titles.length ? `<small class="lb-title">${escapeHtml(titles.map(title =>
       `${title === 'Space Terror' ? '☠' : title === 'Leviathan Slayer' ? '✦' : '♛'} ${I.t('title.' + title)}`).join(' · '))}</small>` : '';
     return `

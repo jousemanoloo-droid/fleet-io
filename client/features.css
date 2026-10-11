@@ -34,3 +34,12 @@
 
 .language-toggle { position:fixed; top:16px; right:16px; z-index:210; min-width:100px; border-color:#00eaff; color:#baffff; box-shadow:0 0 18px #00eaff44; }
 .language-toggle:focus-visible { outline:2px solid #ff32d2; outline-offset:4px; }
+
+.contract-card { position:fixed; top:285px; left:16px; width:235px; padding:12px; display:grid; gap:7px; color:#b6faff; background:#061529db; border:1px solid #00ffff88; border-radius:10px; box-shadow:0 0 16px #00ffff22; font:12px system-ui; z-index:25; pointer-events:none; }
+.contract-card strong { color:#ffe090; font-size:12px; letter-spacing:1px; }
+.contract-timer { justify-self:end; display:grid; place-items:center; width:52px; height:52px; border-radius:50%; color:#fff0b6; background:conic-gradient(#00ffff99 var(--timer,0deg),#132139 0); border:2px solid #29485a; font-weight:bold; }
+.contract-card[hidden],.frenzy-warning[hidden] { display:none; }
+.frenzy-warning { position:fixed; top:26%; left:50%; transform:translateX(-50%); max-width:90vw; padding:12px 20px; color:#ff4c79; border:1px solid #ff245c; border-radius:8px; background:#240919dd; font:900 clamp(15px,2.4vw,28px) system-ui; text-align:center; z-index:40; pointer-events:none; animation:frenzy-pulse .65s ease-in-out infinite alternate; }
+@keyframes frenzy-pulse { from { opacity:.6; text-shadow:0 0 5px #ff245c; } to { opacity:1; text-shadow:0 0 20px #ff245c; } }
+@media(max-width:600px) { .contract-card { top:265px; left:8px; width:175px; padding:8px; font-size:10px; } .contract-timer { width:40px; height:40px; } }
+@media(prefers-reduced-motion:reduce) { .frenzy-warning { animation:none; } }

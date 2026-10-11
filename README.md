@@ -706,3 +706,50 @@ no recarga la página ni reinicia la escena, la partida o el ciclo de anuncios.
 
 Comprobaciones del diccionario, valores por defecto, almacenamiento, textos vivos y
 mensajes del servidor: `node --test tests/i18n.test.js`.
+
+### Contratos, Supernova Frenzy, Overdrive y Revenge
+
+`server/engagement.js` utiliza el tick de la sala, sin intervalos adicionales. Cada
+piloto recibe un contrato individual cada 90 s. Parry exige dos bajas con proyectiles
+reflejados por el propio piloto; KotH suma 15 s dentro del radio existente de 400 px
+alrededor de (0, 0). Ambos vencen a los 60 s. El contrato de 400 XP sin daño vence a
+los 40 s y solo contabiliza recogidas de chatarra, gemas y núcleos; recibir daño o
+morir lo cancela. Completar paga tres veces el coste del nivel vigente y 50 Créditos
+Neón usando la moneda cosmética y sus recibos idempotentes existentes.
+
+Supernova Frenzy tiene un calendario compartido por las salas: 180 s de descanso,
+10 s de aviso y 30 s de actividad, reiniciando el descanso al acabar. Es un evento
+independiente del colapso gravitatorio previo. El centro es el centro geométrico del
+mapa (2000, 2000); radio 400 px, 20 gemas de 100 XP + 1 crédito cada una, 100 XP/s
+para los ocupantes y radiación de 5% de HP máximo/s. Se respetan las protecciones
+existentes y no se otorga XP ambiental mientras se elige una mutación. Los drops
+etiquetados se limpian al terminar y las pausas del proceso no acumulan premios.
+
+Overdrive se activa por debajo del 15% de vida: 6 s, 45 s de cooldown, velocidad
++35%, cadencia de flota/cañones x2 y cooldown de Parry a la mitad. Su duración está
+incluida en el modelo de movimiento compartido y se consume durante la predicción
+y el replay. El archivo WAV de activación se sintetiza localmente y se silencia
+junto con el resto del juego durante anuncios.
+
+Las skins Cyber Blue, Void Purple y Solar Flare tienen estelas eléctricas, anillos
+y llamaradas generadas una vez. Space Pirate se desbloquea tras cinco bajas en una
+sesión; Untouchable tras un contrato sin daño; Dominator conserva el desbloqueo
+por liderar la clasificación. El título se elige en la tienda y se guarda con el
+perfil cosmético local. Los IDs de skins, estelas y títulos no dependen del idioma.
+
+La acción destacada de muerte pasa por `AdManager.showRewardedAd` y únicamente
+tras `adFinished` emite `request_revenge_respawn`. El servidor valida sala/vida,
+consume la muerte una sola vez, restaura el 50% de la XP y flota, e intenta un punto
+libre a 400–500 px del asesino. Si no hay asesino vivo o espacio, conserva el spawn
+seguro. El escudo dorado dura 3 s y permite disparar. El núcleo personal de la XP
+ya restaurada se retira para impedir recuperarla dos veces. El evento antiguo de
+revenge queda como alias; el respawn ordinario sigue disponible sin recompensa.
+
+Los eventos de contratos son fiables y dirigidos al piloto. Los snapshots conservan
+estado suficiente para reconstruir contrato, evento y Overdrive al entrar; los
+campos nuevos se añaden al final de las tuplas para admitir clientes anteriores.
+`client/js/engagement.js` reutiliza la viñeta y emisores compartidos acotados, dibuja
+la zona una sola vez y actualiza el HUD a 10 Hz. Al cambiar de sala o cerrar la escena
+limpia listeners, objetos y partículas. Los textos están en el diccionario EN/ES.
+
+Comprobaciones del nuevo sistema: `node --test tests/engagement.test.js`.

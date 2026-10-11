@@ -12,6 +12,8 @@ function init(p) {
   p.abilityReady = { dash: 0, shield: 0, emp: 0, parry: 0 };
   p.dashUntil = p.shieldUntil = p.empUntil = 0;
   p.orbitalDrones = []; p.orbitAngle = 0; p.matchStartedAt = Date.now();
+  p.equippedSkin = 'default'; p.equippedTrail = 'cyan'; p.equippedTitle = null;
+  p.overdriveUntil = p.overdriveReadyAt = p.revengeShieldUntil = 0; p.sessionKills = 0;
   p.skin = 'default'; p.trail = 'cyan'; p.dailyBoostUntil = 0; p.dailyBoostUsed = false;
   p.killEffect = 'default'; p.titles = []; p.coinRewards = []; p.coinRewardReserve = 0;
   p.lastDamageAt = 0; p.escapePending = false; p.escapeThreat = null;
@@ -52,7 +54,7 @@ function allocate(p, attribute, points = 1) {
   return true;
 }
 const cooldown = p => Math.max(100, 400 - p.attributes.fireRate * 15) /
-  (p.supplyBuff === 'DOUBLE_FIRE_RATE' && Date.now() < p.supplyUntil ? 2 : 1) * (1 - (p.comboCount || 0) * 0.05);
+  (p.supplyBuff === 'DOUBLE_FIRE_RATE' && Date.now() < p.supplyUntil ? 2 : 1) * (1 - (p.comboCount || 0) * 0.05) / (Date.now() < (p.overdriveUntil || 0) ? 2 : 1);
 const damage = p => (5 + Math.min(12, p.drones.length)) * (1 + p.attributes.damage * 0.1);
 
 function activate(p, type, room, now = Date.now()) {
@@ -60,7 +62,7 @@ function activate(p, type, room, now = Date.now()) {
   const config = ABILITIES[type];
   if (!config || !p.alive || p.hp <= 0 || p.levelUpPending || now < p.empUntil ||
       now < (p.abilityReady[type] || 0)) return false;
-  p.abilityReady[type] = now + config.cooldown;
+  p.abilityReady[type] = now + config.cooldown / (type === 'parry' && now < p.overdriveUntil ? 2 : 1);
   if (type === 'dash') {
     p.dashUntil = now + config.duration;
     // Mantener la inercia al terminar; el modelo compartido limita el burst.
@@ -78,6 +80,7 @@ function movement(p, now = Date.now()) {
   p.dashing = now < p.dashUntil;
   p.slowed = now < p.empUntil;
   p.boosted = now < p.dailyBoostUntil;
+  p.overdriveRemaining = Math.max(0, (p.overdriveUntil || 0) - now);
   p.speedMultiplier = now < p.revengeUntil ? 1.5 : 1;
 }
 function orbit(p) {
@@ -98,6 +101,11 @@ function network(p, now = Date.now()) {
     killedBy: p.killedBy, skin: p.skin, trail: p.trail,
     dashing: now < p.dashUntil, slowed: now < p.empUntil, shielded: now < p.shieldUntil,
     boosted: now < p.dailyBoostUntil,
+    equippedSkin: p.equippedSkin, equippedTrail: p.equippedTrail, equippedTitle: p.equippedTitle,
+    overdriveRemaining: Math.max(0, (p.overdriveUntil || 0) - now),
+    overdriveCooldown: Math.max(0, (p.overdriveReadyAt || 0) - now),
+    revengeShieldRemaining: Math.max(0, (p.revengeShieldUntil || 0) - now),
+    contract: p.engagement?.view(p, now) || null,
     cooldowns: Object.fromEntries(Object.entries(p.abilityReady).map(([key, value]) => [key, Math.max(0, value - now)])),
     abilityDurations: { dash: Math.max(0, p.dashUntil - now), shield: Math.max(0, p.shieldUntil - now),
       emp: Math.max(0, p.empUntil - now), boost: Math.max(0, p.dailyBoostUntil - now) },

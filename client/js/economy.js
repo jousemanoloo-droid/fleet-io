@@ -5,7 +5,10 @@
   const CATALOG = Object.freeze({
     skins: [{ id: 'default', nameKey: 'cosmetic.skins.default', price: 0 },
       { id: 'alien', nameKey: 'cosmetic.skins.alien', price: 600 }, { id: 'gold', nameKey: 'cosmetic.skins.gold', price: 1500 },
-      { id: 'chrome', nameKey: 'cosmetic.skins.chrome', price: 1000 }],
+      { id: 'chrome', nameKey: 'cosmetic.skins.chrome', price: 1000 },
+      { id: 'cyber', nameKey: 'cosmetic.skins.cyber', price: 600 },
+      { id: 'void', nameKey: 'cosmetic.skins.void', price: 900 },
+      { id: 'solar', nameKey: 'cosmetic.skins.solar', price: 1100 }],
     trails: [{ id: 'cyan', nameKey: 'cosmetic.trails.cyan', price: 0 }, { id: 'orange', nameKey: 'cosmetic.trails.orange', price: 400 },
       { id: 'purple', nameKey: 'cosmetic.trails.purple', price: 800 }],
     effects: [{ id: 'default', nameKey: 'cosmetic.effects.default', price: 0 },
@@ -19,7 +22,7 @@
       try { this.storage = storage || global.localStorage; } catch { this.storage = null; }
       this.now = now; this.persistent = true;
       this.state = { coins: 0, skins: ['default'], trails: ['cyan'], effects: ['default'], titles: [], lastLogin: 0,
-        pendingBoost: false, equipped: { skin: 'default', trail: 'cyan', killEffect: 'default' }, settled: [], receipts: {} };
+        pendingBoost: false, equipped: { skin: 'default', trail: 'cyan', killEffect: 'default', title: null }, settled: [], receipts: {} };
       this.load();
     }
     load() {
@@ -38,7 +41,7 @@
           skins: [...new Set(['default', ...(Array.isArray(data.skins) ? data.skins.filter(id => ids('skins').includes(id)) : [])])],
           trails: [...new Set(['cyan', ...(Array.isArray(data.trails) ? data.trails.filter(id => ids('trails').includes(id)) : [])])],
           effects: [...new Set(['default', ...(Array.isArray(data.effects) ? data.effects.filter(id => ids('effects').includes(id)) : [])])],
-          titles: Array.isArray(data.titles) ? data.titles.filter(title => ['Space Terror', 'Leviathan Slayer', 'Dominator'].includes(title)) : [],
+          titles: Array.isArray(data.titles) ? data.titles.filter(title => ['Space Terror', 'Leviathan Slayer', 'Dominator', 'Space Pirate', 'Untouchable'].includes(title)) : [],
           lastLogin: Number.isFinite(data.lastLogin) ? Math.max(0, data.lastLogin) : 0,
           pendingBoost: data.pendingBoost === true,
           settled: Array.isArray(data.settled) ? data.settled.filter(id => typeof id === 'string').slice(-128) : [],
@@ -47,6 +50,7 @@
         };
         if (this.state.skins.includes(data.equipped?.skin)) this.state.equipped.skin = data.equipped.skin;
         if (this.state.trails.includes(data.equipped?.trail)) this.state.equipped.trail = data.equipped.trail;
+        if (this.state.titles.includes(data.equipped?.title)) this.state.equipped.title = data.equipped.title;
         if (this.state.effects.includes(data.equipped?.killEffect)) this.state.equipped.killEffect = data.equipped.killEffect;
       } catch { this.persistent = false; }
     }
@@ -99,7 +103,7 @@
       return total;
     }
     unlockTitle(title) {
-      if (!['Space Terror', 'Leviathan Slayer', 'Dominator'].includes(title)) return;
+      if (!['Space Terror', 'Leviathan Slayer', 'Dominator', 'Space Pirate', 'Untouchable'].includes(title)) return;
       if (!this.state.titles.includes(title)) { this.state.titles.push(title); this.save(); }
     }
     settle(id, score) {

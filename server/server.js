@@ -171,11 +171,12 @@ io.on('connection', (socket) => {
   socket.on('setCosmetics', data => {
     const state = valid(data);
     if (!state) return;
-    if (['default', 'alien', 'gold', 'chrome'].includes(data?.skin)) state.player.skin = data.skin;
-    if (['cyan', 'orange', 'purple'].includes(data?.trail)) state.player.trail = data.trail;
+    if (['default', 'alien', 'gold', 'chrome', 'cyber', 'void', 'solar'].includes(data?.skin)) state.player.equippedSkin = state.player.skin = data.skin;
+    if (['cyan', 'orange', 'purple'].includes(data?.trail)) state.player.equippedTrail = state.player.trail = data.trail;
     if (EFFECTS.includes(data?.killEffect)) state.player.killEffect = data.killEffect;
     if (Array.isArray(data?.titles)) state.player.titles = [...new Set([
       ...state.player.titles, ...data.titles.filter(title => TITLES.includes(title))])];
+    if (data?.title === null || state.player.titles.includes(data?.title)) state.player.equippedTitle = data.title;
   });
   socket.on('ackCoinReward', data => {
     const { room, player } = current();
@@ -195,25 +196,18 @@ io.on('connection', (socket) => {
     reply(ack, { ok: true });
   });
 
-  socket.on('requestRevengeRespawn', (data, ack) => {
+  const revengeRespawn = (data, ack) => {
     const { room, player } = current();
-    const killer = room?.players.get(player?.killedBy?.id);
-    if (!player || player.alive || data?.deathId !== player.deathId ||
-        (data?.roomId && data.roomId !== room.roomId) || !killer?.alive) {
-      reply(ack, { ok: false, error: 'El rival ya no está disponible.' }); return;
+    if (!room || data?.roomId !== room.roomId || data?.deathId !== player?.deathId ||
+        !room.engagement.revive(player)) {
+      reply(ack, { ok: false, error: 'error.respawn' }); return;
     }
-    // Comprobar el punto antes de consumir la muerte: permite reiniciar si no hay espacio.
-    const position = { x: player.x, y: player.y, targetX: player.targetX, targetY: player.targetY };
-    if (!RPG.revengeSpawn(player, killer, room)) {
-      Object.assign(player, position); reply(ack, { ok: false, error: 'No hay espacio seguro cerca del rival.' }); return;
-    }
-    const spawn = { x: player.x, y: player.y };
-    player.respawn(false, room.players, room.world, room.obstacles);
-    player.x = player.targetX = spawn.x; player.y = player.targetY = spawn.y;
-    socket.emit('respawned', { ...player.toNetwork(), roomId: room.roomId, revengeTarget: killer.id,
-      coreTarget: room.events.coreTarget(player) });
+    socket.emit('respawned', { ...player.toNetwork(), roomId: room.roomId,
+      revengeTarget: player.revengeTarget, coreTarget: room.events.coreTarget(player) });
     reply(ack, { ok: true });
-  });
+  };
+  socket.on('request_revenge_respawn', revengeRespawn);
+  socket.on('requestRevengeRespawn', revengeRespawn); // Legacy event alias.
 
   // El SDK confirma la finalización en el cliente; deathId y la economía retenida
   // siguen siendo autoritativos y cada muerte solo admite una resurrección.

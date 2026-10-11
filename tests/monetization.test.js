@@ -191,7 +191,8 @@ test('socket handlers reject living, duplicate and stale requests; ignore client
   assert.equal(result.ok, true);
   assert.ok(Math.hypot(p.x - killer.x, p.y - killer.y) >= 400);
   assert.ok(Math.hypot(p.x - killer.x, p.y - killer.y) <= 500);
-  assert.equal(p.score, 0); assert.equal(p.level, 1); assert.equal(p.hp, 100);
+  assert.equal(p.score, 27); assert.equal(p.level, 1); assert.equal(p.hp, 150);
+  assert.ok(p.revengeShieldUntil > Date.now());
   handlers.requestRevengeRespawn({ roomId: room.roomId, deathId: p.deathId }, ack);
   assert.equal(result.ok, false, 'revenge cannot resurrect twice');
 });
@@ -261,7 +262,7 @@ test('client death modal blocks input, retries cancelled ads and waits for serve
   assert.equal(C.dead, true);
   node('rewarded-respawn-btn').onclick();
   success();
-  assert.equal(requests[0][0], 'requestRewardedRespawn');
+  assert.equal(requests[0][0], 'request_revenge_respawn');
   assert.equal(requests[0][1].deathId, 1);
   assert.equal(C.dead, true, 'ad success alone does not resurrect locally');
   assert.equal(gameplay.includes('start'), false);

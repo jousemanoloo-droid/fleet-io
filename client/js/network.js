@@ -19,7 +19,9 @@
         [n.nemesisId,n.kothTime,n.speedMultiplier,+n.isInvulnerable,+n.isParrying,n.revengeRemaining,n.parryRemaining,n.supplyBuff,n.supplyRemaining],
         [n.comboCount,n.comboTimer,n.motionRevision,n.slingshotRemaining,n.teleportRemaining,n.gravityWell,n.kickX,n.kickY,n.kickAppliedX,n.kickAppliedY]],
       n.orbitalDrones.map(d => [d.id, Math.round(d.x), Math.round(d.y)]),
-      (n.tacticalDrones || []).map(d => [d.id,d.x,d.y,d.state,d.attackTimer,d.rotation]), n.swarmCooldown || 0];
+      (n.tacticalDrones || []).map(d => [d.id,d.x,d.y,d.state,d.attackTimer,d.rotation]), n.swarmCooldown || 0,
+      [n.overdriveRemaining || 0, n.overdriveCooldown || 0, n.revengeShieldRemaining || 0,
+        n.equippedSkin || n.skin, n.equippedTrail || n.trail, n.equippedTitle || null, n.contract || null]];
   }
   function player(a) {
     if (!Array.isArray(a)) return a;
@@ -39,6 +41,9 @@
       orbitalDrones: (a[23] || []).map(d => ({ id: d[0], x: d[1], y: d[2], autonomous: true })),
       tacticalDrones: (a[24] || []).map(d => ({id:d[0],x:d[1],y:d[2],state:d[3],attackTimer:d[4], rotation:d[5] || 0, tactical:true})),
       swarmCooldown: a[25] || 0,
+      overdriveRemaining: a[26]?.[0] || 0, overdriveCooldown: a[26]?.[1] || 0, revengeShieldRemaining: a[26]?.[2] || 0,
+      equippedSkin: a[26]?.[3] || r?.[7] || 'default', equippedTrail: a[26]?.[4] || r?.[8] || 'cyan',
+      equippedTitle: a[26]?.[5] || null, contract: a[26]?.[6] || null,
       id: a[0], x: a[1], y: a[2], vx: a[3], vy: a[4], rotation: a[5], score: a[6],
       scrap: a[7], hp: a[8], maxHp: a[9], level: a[10], name: a[11], color: a[12], isBot: !!a[13],
       deathId: a[14], deathState: a[15] ? { score: a[15][0], scrap: a[15][1], drones: a[15][2],

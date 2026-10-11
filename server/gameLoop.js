@@ -26,6 +26,7 @@ class GameLoop {
     gameState.swarm ||= new (require('./swarm').DroneSwarm)(gameState);
     gameState.events ||= new WorldEvents(gameState);
     gameState.competitive ||= new (require('./competitive').Competitive)(gameState);
+    gameState.engagement ||= new (require('./engagement').Engagement)(gameState);
     gameState.hazards ||= new (require('./hazards').Hazards)(gameState);
   }
 
@@ -56,6 +57,8 @@ class GameLoop {
     this._updateScrap();
     this._checkScrapCollection();
     this._maybeSpawnScrap();
+    this.state.engagement.update();
+    this._processDeaths();
     this.state.events.update();
     this._flushProgression();
 
@@ -65,6 +68,7 @@ class GameLoop {
   _updatePlayers() {
     this._processDeaths();
     for (const p of this.state.players.values()) {
+      this.state.engagement.attach(p);
       p.competitive = this.state.competitive;
       p.swarm = this.state.swarm;
       if (p.alive) {
@@ -238,6 +242,7 @@ class GameLoop {
       w: this.state.events.snapshot(),
       competitive: this.state.competitive.snapshot(),
       hazards: this.state.hazards.snapshot(),
+      engagement: this.state.engagement.snapshot(),
     };
 
     if (!this.keyframe || this.tickCount - this.keyframe.t >= 30) {

@@ -3,7 +3,7 @@
 (function (global) {
   'use strict';
   const I = window.FleetI18n, M = I.m;
-  const SKIN_COLORS = { default: 0xffffff, alien: 0x77ff99, gold: 0xffd260, chrome: 0xd9e3ed };
+  const SKIN_COLORS = { default: 0xffffff, alien: 0x77ff99, gold: 0xffd260, chrome: 0xd9e3ed, cyber: 0x88eaff, void: 0xb193ff, solar: 0xffb84d };
   const TRAIL_COLORS = { cyan: 0x20dfff, orange: 0xffa039, purple: 0xb16cff };
   const ATTRIBUTES = { speed: ['attributes.speed', 10], shield: ['attributes.shield', 10],
     damage: ['attributes.damage', 10], fireRate: ['attributes.fireRate', 20] };
@@ -90,6 +90,13 @@
           card.append(label, buy); grid.append(card);
         }
         this.panel.append(grid);
+      }
+      const titles = document.createElement('h3'); I.render(titles, M('cosmetic.titles')); this.panel.append(titles);
+      for (const title of [null, ...this.economy.state.titles]) {
+        const button = this.button(title ? M('title.' + title) : M('cosmetic.noTitle'), () => {
+          this.economy.state.equipped.title = title; this.economy.save(); this.loadout(); this.shop();
+        });
+        button.disabled = this.economy.state.equipped.title === title; this.panel.append(button);
       }
       if (!this.economy.persistent) {
         const notice = document.createElement('p'); I.render(notice, M('shop.storage'));
@@ -232,18 +239,13 @@
       }
       const reward = document.createElement('p');
       I.render(reward, M('death.reward', { coins: earned, seconds: Math.floor((me.deathState?.survivedMs || me.survivedMs || 0) / 1000) }));
-      this.killer.append(reward); this.revengeButton.classList.toggle('hidden', !attacker);
+      this.killer.append(reward); this.revengeButton.classList.add('hidden');
     }
     requestRevenge() {
-      if (!this.C.dead || this.C.respawnBusy || global.AdManager?.busy) return;
-      this.scene._setRespawnBusy(true, M('status.findRival')); this.revengeButton.disabled = true;
-      const roomId = this.C.room?.roomId, playerId = this.C.myId, deathId = this.C.deathId;
-      this.C.socket.timeout(8000).emit('requestRevengeRespawn', { deathId: this.C.deathId, roomId: this.C.room?.roomId }, (error, result) => {
-        this.revengeButton.disabled = false;
-        if (!this.C.dead || roomId !== this.C.room?.roomId || playerId !== this.C.myId || deathId !== this.C.deathId) return;
-        if (error || !result?.ok) this.scene._setRespawnBusy(false, I.error(result?.error, 'status.reviveFailed'));
-      });
+      // All revenge actions share the SDK-completed reward path; no free shortcut.
+      document.getElementById('rewarded-respawn-btn')?.click();
     }
+
     sync(me) {
       this.me = me;
       this.scene._retention?.sync(me);

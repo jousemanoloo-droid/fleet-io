@@ -1,7 +1,7 @@
 'use strict';
 const RPG = require('./rpg');
 const EPOCH = Date.now();
-const TITLES = ['Space Terror', 'Leviathan Slayer', 'Dominator'];
+const TITLES = ['Space Terror', 'Leviathan Slayer', 'Dominator', 'Space Pirate', 'Untouchable'];
 const EFFECTS = ['default', 'FROST_SHATTER', 'BLACK_HOLE', 'NEON_GRAFFITI'];
 
 // Todas las salas comparten la fase del calendario. El único temporizador sigue
@@ -28,7 +28,8 @@ class WorldEvents {
   title(p, title) {
     p.titles ||= [];
     if (!p.titles.includes(title)) {
-      p.titles.push(title); this.emit('profile_unlock', { title }, p.id);
+      p.titles.push(title);
+      if (!p.equippedTitle) p.equippedTitle = title; this.emit('profile_unlock', { title }, p.id);
     }
   }
   // Reparto entero conserva exactamente el premio incluso cuando es <24 XP.
@@ -147,7 +148,7 @@ class WorldEvents {
       if (now >= core.expires) { this.cores.delete(id); continue; }
       const p = this.nearby(cells, core.x, core.y).find(p => Math.hypot(p.x - core.x, p.y - core.y) <= p.collectRadius + 16);
       if (p) {
-        RPG.addXP(p, core.xp); this.cores.delete(id);
+        RPG.addXP(p, core.xp); p.engagement?.collectedXP(p, core.xp); this.cores.delete(id);
         this.emit('core_collected', { id, xp: core.xp, recovered: p.id === core.ownerId }, p.id);
       }
     }
@@ -165,7 +166,7 @@ class WorldEvents {
     this.updateBoss(players, now);
   }
   collect(p, gem) {
-    RPG.addXP(p, gem.xp); this.award(p, gem.coins, 'gem');
+    RPG.addXP(p, gem.xp); p.engagement?.collectedXP(p, gem.xp); this.award(p, gem.coins, 'gem');
     this.emit('gem_collected', { id: gem.id, xp: gem.xp }, p.id);
   }
   meteors() {

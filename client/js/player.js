@@ -35,7 +35,7 @@
       this.state.boosted = !!server.boosted;
       this.state.speedMultiplier = replay.speedMultiplier || 1;
       this.state.revengeRemaining = replay.revengeRemaining || 0;
-      for (const key of ['comboCount','comboTimer','slingshotRemaining','teleportRemaining','kickX','kickY','kickAppliedX','kickAppliedY','gravityWell']) this.state[key]=replay[key];
+      for (const key of ['overdriveRemaining','comboCount','comboTimer','slingshotRemaining','teleportRemaining','kickX','kickY','kickAppliedX','kickAppliedY','gravityWell']) this.state[key]=replay[key];
     }
     advance(delta, target, world, obstacles, send) {
       const model = global.FleetMovement;

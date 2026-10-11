@@ -65,6 +65,7 @@ class GameRoom {
   }
 
   placePlayer(player) {
+    this.engagement.attach(player);
     player.competitive = this.competitive;
     player.swarm = this.swarm;
     // Reutilizar la búsqueda de spawn seguro sin conservar economía.
@@ -89,6 +90,7 @@ class GameRoom {
     this.competitive.remove(id);
     this.hazards.remove(id);
     const leaving = this.players.get(id);
+    this.engagement.remove(leaving);
     if (leaving) this.swarm.release(leaving);
     this.players.delete(id);
     for (const [key, shot] of this.projectiles) if (shot.ownerId === id) this.projectiles.delete(key);
@@ -110,6 +112,7 @@ class GameRoom {
     if (this.destroyed) return;
     this.destroyed = true;
     this.loop.stop();
+    this.engagement.destroy();
     this.events.destroy();
     this.competitive.destroy();
     this.hazards.destroy();
