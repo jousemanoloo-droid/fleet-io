@@ -31,3 +31,6 @@
 .blitz-button:disabled { cursor:default; color:#a5d2df; }
 .blitz-button[hidden] { display:none; }
 @media(max-width:600px) { .blitz-button { width:66px; height:66px; bottom:238px; right:10px; font-size:10px; } }
+
+.language-toggle { position:fixed; top:16px; right:16px; z-index:210; min-width:100px; border-color:#00eaff; color:#baffff; box-shadow:0 0 18px #00eaff44; }
+.language-toggle:focus-visible { outline:2px solid #ff32d2; outline-offset:4px; }

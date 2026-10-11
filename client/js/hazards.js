@@ -1,6 +1,7 @@
 // Presentación de peligros: pools acotados; nunca modifica daño ni velocidades.
 (function(global){
   'use strict';
+  const I = window.FleetI18n, M = I.m;
   class Hazards {
     constructor(scene,C){
       this.scene=scene;this.C=C;this.data={wormholePairs:[],supernova:null};this.handlers={};
@@ -17,8 +18,8 @@
       const on=(event,fn)=>{const h=d=>{if(event==='welcome'||event==='disconnect'||d?.roomId===C.room?.roomId)fn(d);};this.handlers[event]=h;C.socket.on(event,h);};
       on('welcome',()=>this.reset());on('disconnect',()=>this.reset());
       on('WORMHOLE_TRAVERSE',d=>this.traverse(d));
-      on('SUPERNOVA_WARN',()=>scene._retention?.notify('SUPERNOVA · COLAPSO EN 5 s',5000,2));
-      on('SUPERNOVA_ACTIVE',()=>scene._retention?.notify('SUPERNOVA · EVITA EL NÚCLEO',4000));
+      on('SUPERNOVA_WARN',()=>scene._retention?.notify(M('hazard.warning'),5000,2));
+      on('SUPERNOVA_ACTIVE',()=>scene._retention?.notify(M('hazard.active'),4000));
       on('PLASMA_EXPLOSION',d=>this.explosion(d));
       on('COMBO_UPDATE',d=>this.combo(d));
       scene.events.once('shutdown',()=>this.destroy());
@@ -123,7 +124,7 @@
         p.setPosition(nova.x+Math.cos(a)*r,nova.y+Math.sin(a)*r).setAlpha(Math.sin(t*Math.PI)).setRotation(a);
       }
       const me=this.C.playerStates.get(this.C.myId),count=me?.comboCount||0;
-      this.combo({comboCount:count});this.chain.hidden=!active||!count;this.chain.textContent=`KILL CHAIN x${count}!`;
+      this.combo({comboCount:count});this.chain.hidden=!active||!count;I.render(this.chain, M('combo', { count }));
     }
     reset(){
       this.data={wormholePairs:[],supernova:null};this.trails.clear();this.fxSeen.clear();this.lastCombo=0;this.chain.hidden=true;

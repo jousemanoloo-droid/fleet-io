@@ -1,4 +1,5 @@
 'use strict';
+const i18n = () => require('../client/js/i18n')(require('../client/js/translations'));
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -6,7 +7,7 @@ const vm = require('node:vm');
 
 function fixture() {
   let now = 1000, created = 0;
-  const window = { addEventListener() {} };
+  const window = { FleetI18n: i18n(), addEventListener() {} };
   vm.runInNewContext(fs.readFileSync('client/js/retention.js', 'utf8'), { window, performance: { now: () => now } });
   const instance = Object.create(window.FleetRetention.Retention.prototype);
   const image = (x, y) => {

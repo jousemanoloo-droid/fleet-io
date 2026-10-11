@@ -3,15 +3,15 @@
 (function (global) {
   'use strict';
   const CATALOG = Object.freeze({
-    skins: [{ id: 'default', name: 'Caza Original', price: 0 },
-      { id: 'alien', name: 'Alien Green', price: 600 }, { id: 'gold', name: 'Golden Elite', price: 1500 },
-      { id: 'chrome', name: 'Mecha Chrome', price: 1000 }],
-    trails: [{ id: 'cyan', name: 'Plasma Cyan', price: 0 }, { id: 'orange', name: 'Solar Orange', price: 400 },
-      { id: 'purple', name: 'Void Purple', price: 800 }],
-    effects: [{ id: 'default', name: 'Explosión de plasma', price: 0 },
-      { id: 'FROST_SHATTER', name: 'Frost Shatter', price: 900 },
-      { id: 'BLACK_HOLE', name: 'Black Hole', price: 1800 },
-      { id: 'NEON_GRAFFITI', name: 'Neon Graffiti', price: 1200 }],
+    skins: [{ id: 'default', nameKey: 'cosmetic.skins.default', price: 0 },
+      { id: 'alien', nameKey: 'cosmetic.skins.alien', price: 600 }, { id: 'gold', nameKey: 'cosmetic.skins.gold', price: 1500 },
+      { id: 'chrome', nameKey: 'cosmetic.skins.chrome', price: 1000 }],
+    trails: [{ id: 'cyan', nameKey: 'cosmetic.trails.cyan', price: 0 }, { id: 'orange', nameKey: 'cosmetic.trails.orange', price: 400 },
+      { id: 'purple', nameKey: 'cosmetic.trails.purple', price: 800 }],
+    effects: [{ id: 'default', nameKey: 'cosmetic.effects.default', price: 0 },
+      { id: 'FROST_SHATTER', nameKey: 'cosmetic.effects.FROST_SHATTER', price: 900 },
+      { id: 'BLACK_HOLE', nameKey: 'cosmetic.effects.BLACK_HOLE', price: 1800 },
+      { id: 'NEON_GRAFFITI', nameKey: 'cosmetic.effects.NEON_GRAFFITI', price: 1200 }],
   });
   const KEY = 'fleet_io_economy_state';
   class Economy {

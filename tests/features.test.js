@@ -1,4 +1,5 @@
 'use strict';
+const i18n = () => require('../client/js/i18n')(require('../client/js/translations'));
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
@@ -6,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 function fixture() {
-  const window = { AdManager: { busy: false } };
+  const window = { FleetI18n: i18n(), AdManager: { busy: false } };
   const document = { activeElement: null, createElement: () => ({ textContent: '' }) };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../client/js/features.js'), 'utf8'), { window, document });
   const feature = Object.create(window.FleetFeatures.Features.prototype);

@@ -1,11 +1,13 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
-  <meta name="description" content="FLEET.IO - Conduce tu nave nodriza espacial, absorbe chatarra y construye tu flota de drones en este juego .io multijugador." />
-  <title>FLEET.IO · Controla tu Flota Espacial</title>
+  <meta name="description" data-i18n-content="page.description" content="Pilot your mothership, collect scrap and build your drone fleet in this multiplayer .io game." />
+  <title data-i18n="page.title">FLEET.IO · Command Your Space Fleet</title>
 
+  <script src="js/translations.js"></script>
+  <script src="js/i18n.js"></script>
   <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
   <link rel="stylesheet" href="features.css">
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
@@ -753,99 +755,100 @@
   <!-- HUD -->
   <div id="hud">
     <div class="hud-top-left">
-      <div class="hud-title">◆ Estado de Flota</div>
-      <div id="hud-room" class="room-status">MODO: SIN SALA</div>
+      <div class="hud-title" data-i18n="hud.fleet">◆ FLEET STATUS</div>
+      <div id="hud-room" class="room-status" data-i18n="room.none">MODE: NO ROOM</div>
       <div id="room-code-panel" hidden>
         <div class="room-code" id="hud-room-code"></div>
-        <div class="room-tools"><button id="copy-room-btn">COPIAR CÓDIGO</button></div>
+        <div class="room-tools"><button id="copy-room-btn" data-i18n="menu.copy">COPY CODE</button></div>
         <div id="room-copy-status" role="status" aria-live="polite"></div>
       </div>
-      <div class="room-tools"><button id="menu-btn">CAMBIAR MODO</button></div>
+      <div class="room-tools"><button id="menu-btn" data-i18n="menu.change">CHANGE MODE</button></div>
       <div class="hud-row">
-        <span class="hud-label">Nivel</span>
+        <span class="hud-label" data-i18n="hud.level">Level</span>
         <span class="hud-value level" id="hud-level">1</span>
       </div>
       <div class="hud-row">
-        <span class="hud-label">Siguiente nivel</span>
+        <span class="hud-label" data-i18n="hud.next">Next level</span>
         <span class="hud-value scrap" id="hud-level-progress">0 / 100 XP</span>
       </div>
       <div class="hud-row">
-        <span class="hud-label">Integridad</span>
+        <span class="hud-label" data-i18n="hud.integrity">Integrity</span>
         <span class="hud-value hp" id="hud-hp">100/100</span>
       </div>
       <div class="hp-bar-wrap">
         <div class="hp-bar" id="hud-hp-bar"></div>
       </div>
       <div class="hud-row">
-        <span class="hud-label">Puntuación</span>
+        <span class="hud-label" data-i18n="hud.score">Score</span>
         <span class="hud-value score" id="hud-score">0</span>
       </div>
       <div class="hud-row">
-        <span class="hud-label">Chatarra</span>
+        <span class="hud-label" data-i18n="hud.scrap">Scrap</span>
         <span class="hud-value scrap" id="hud-scrap">0</span>
       </div>
       <div class="hud-row">
-        <span class="hud-label">Escoltas</span>
+        <span class="hud-label" data-i18n="hud.drones">Escort drones</span>
         <span class="hud-value drones" id="hud-drones">0 / 12</span>
       </div>
     </div>
 
     <div class="hud-top-right">
       <div class="leaderboard" id="leaderboard">
-        <h3>◈ TOP 10 ◈</h3>
+        <h3 data-i18n="hud.top">◈ TOP 10 ◈</h3>
         <div class="lb-meta">
           <span class="lb-ping">PING <span id="hud-ping">--</span>ms</span>
-          <span class="lb-count">ONLINE <span id="hud-players">0</span></span>
+          <span class="lb-count"><span data-i18n="hud.online">ONLINE</span> <span id="hud-players">0</span></span>
         </div>
         <div id="lb-rows"></div>
       </div>
     </div>
 
     <div class="hud-bottom">
-      <strong>RATÓN / WASD / FLECHAS</strong> para dirigir tu nave · Recoge <strong>CHATARRA</strong> para ganar escoltas
+      <strong data-i18n="controls.keys">MOUSE / WASD / ARROWS</strong> <span data-i18n="controls.move">to steer your ship · Collect</span> <strong data-i18n="hud.scrap">Scrap</strong> <span data-i18n="controls.fleet">to gain escort drones</span>
     </div>
 
     <!-- Minimapa global en tiempo real -->
     <div class="minimap-wrap" id="minimap-wrap">
-      <div class="minimap-label">RADAR GLOBAL</div>
+      <div class="minimap-label" data-i18n="hud.radar">GLOBAL RADAR</div>
       <div class="minimap-grid"></div>
       <canvas class="minimap-canvas" id="minimap-canvas" width="200" height="200"></canvas>
       <div class="minimap-scanline"></div>
       <div class="minimap-legend">
-        <span class="lg-me">Tú</span>
-        <span class="lg-enemy">Enemigos</span>
-        <span class="lg-scrap">Chatarra</span>
+        <span class="lg-me" data-i18n="hud.you">You</span>
+        <span class="lg-enemy" data-i18n="hud.enemies">Enemies</span>
+        <span class="lg-scrap" data-i18n="hud.scrap">Scrap</span>
       </div>
     </div>
   </div>
 
   <!-- Pantalla de inicio -->
   <div id="overlay">
+    <button id="language-toggle" class="feature-button language-toggle" type="button" aria-label="Switch to Spanish" aria-pressed="false">EN → ES</button>
     <div class="title">FLEET.IO</div>
-    <div class="subtitle">CONTROL · ABSORBE · DOMINA</div>
+    <div class="subtitle" data-i18n="menu.subtitle">COMMAND · ABSORB · DOMINATE</div>
 
     <div class="panel mode-panel">
       <div class="field">
-        <label for="name-input">Nombre del Piloto</label>
-        <input id="name-input" type="text" maxlength="16" placeholder="Introduce tu nombre..." autocomplete="off" />
+        <label for="name-input" data-i18n="menu.pilot">Pilot name</label>
+        <input id="name-input" type="text" maxlength="16" data-i18n-placeholder="menu.placeholder" placeholder="Enter your name..." autocomplete="off" />
       </div>
-      <button class="btn" id="join-btn">▶ JUEGO RÁPIDO (PÚBLICO)</button>
-      <button class="btn death-secondary" id="create-room-btn">◇ CREAR SALA PRIVADA</button>
+      <button class="btn" id="join-btn" data-i18n="menu.play">▶ QUICK PLAY (PUBLIC)</button>
+      <button class="btn death-secondary" id="create-room-btn" data-i18n="menu.private">◇ CREATE PRIVATE ROOM</button>
       <div class="field room-entry">
-        <label for="room-code-input">Código privado · 6 caracteres</label>
+        <label for="room-code-input" data-i18n="menu.code">Private code · 6 characters</label>
         <input id="room-code-input" type="text" maxlength="6" placeholder="ABC234"
           autocomplete="off" spellcheck="false" />
-        <button class="btn death-secondary" id="join-room-btn">↗ UNIRSE A SALA</button>
+        <button class="btn death-secondary" id="join-room-btn" data-i18n="menu.join">↗ JOIN ROOM</button>
       </div>
-      <button class="btn death-secondary" id="singleplayer-btn">⚔ MODO SOLITARIO (VS BOTS)</button>
-      <button class="btn death-secondary" id="resume-btn" hidden>VOLVER A LA PARTIDA</button>
-      <div class="status" id="status">Pulsa el botón para unirte</div>
+      <button class="btn death-secondary" id="singleplayer-btn" data-i18n="menu.solo">⚔ SINGLE PLAYER (VS BOTS)</button>
+      <button class="btn death-secondary" id="resume-btn" hidden data-i18n="menu.resume">RETURN TO GAME</button>
+      <div class="status" id="status" data-i18n="menu.prompt">Press a button to join</div>
 
       <div class="tips">
-        <div>• Dirige tu nave nodriza hacia la <b>chatarra</b> para absorberla.</div>
-        <div>• Cada 5 piezas recibes un <b>dron escolta</b> (máx. 12).</div>
-        <div>• Los cañones atacan automáticamente a enemigos cercanos.</div>
-        <div>• El modo solitario enfrenta tu flota a <b>7 bots</b> con IA.</div>
+        <div data-i18n="tip.collect">• Steer your mothership toward scrap to collect it.</div>
+        <div data-i18n="tip.drones">• Every 5 scrap pieces grant an escort drone (max. 12).</div>
+        <div data-i18n="tip.attack">• Cannons automatically attack nearby enemies.</div>
+        <div data-i18n="tip.bots">• Single player pits your fleet against 7 AI bots.</div>
       </div>
     </div>
   </div>
@@ -854,14 +857,14 @@
   <div id="mutate-overlay" class="mutate-overlay hidden">
     <div class="mutate-card" id="mutate-card">
       <div class="mutate-header">
-        <div class="mutate-title">⚡ MUTACIÓN DISPONIBLE ⚡</div>
-        <div class="mutate-subtitle">NIVEL <span id="mutate-level">2</span> · Elige una mejora para tu flota</div>
+        <div class="mutate-title" data-i18n="mutation.available">⚡ MUTATION AVAILABLE ⚡</div>
+        <div class="mutate-subtitle"><span data-i18n="hud.level">Level</span> <span id="mutate-level">2</span> <span data-i18n="mutation.choose">· Choose a fleet upgrade</span></div>
       </div>
       <div class="mutate-options" id="mutate-options">
         <!-- Las 3 cartas se generan dinámicamente -->
       </div>
-      <div class="mutate-footer">
-        Tu nave se ralentiza y es invulnerable mientras eliges
+      <div class="mutate-footer" data-i18n="mutation.protection">
+        Your ship slows down and becomes invulnerable while you choose
       </div>
     </div>
   </div>
@@ -869,12 +872,11 @@
   <div id="death-overlay" class="death-overlay hidden" role="dialog"
        aria-modal="true" aria-labelledby="death-title">
     <div class="panel death-panel">
-      <h2 id="death-title">DESTRUCCIÓN DE FLOTA</h2>
+      <h2 id="death-title" data-i18n="death.title">FLEET DESTROYED</h2>
       <p id="death-summary"></p>
-      <p>Completa un anuncio para recuperar el 50% de tu puntuación, chatarra y escoltas
-        (redondeado hacia abajo), con toda tu vida restaurada.</p>
-      <button id="rewarded-respawn-btn" class="btn">🎬 REVIVIR CON 50% DE FLOTA</button>
-      <button id="restart-btn" class="btn death-secondary">🔄 REINICIAR SIN FLOTA</button>
+      <p data-i18n="death.explain">Complete an ad to recover 50% of your score, scrap and escorts (rounded down), with full health restored.</p>
+      <button id="rewarded-respawn-btn" class="btn" data-i18n="death.rewarded">🎬 REVIVE WITH 50% OF FLEET</button>
+      <button id="restart-btn" class="btn death-secondary" data-i18n="death.restart">🔄 RESTART WITHOUT FLEET</button>
       <div id="death-status" class="death-status" role="status" aria-live="polite"></div>
     </div>
   </div>

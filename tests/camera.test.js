@@ -1,4 +1,5 @@
 'use strict';
+const i18n = () => require('../client/js/i18n')(require('../client/js/translations'));
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -9,7 +10,7 @@ function client() {
   const source = fs.readFileSync(path.join(__dirname, '../client/js/game-scene.js'), 'utf8')
     .replace('  async function bootPhaser() {', '  globalThis.testing = { C, GameScene };\n  async function bootPhaser() {');
   const context = {
-    Phaser: { Scene: class {} }, performance: { now: () => 1000 }, window: {},
+    Phaser: { Scene: class {} }, performance: { now: () => 1000 }, window: { FleetI18n: i18n() },
     document: { readyState: 'loading', addEventListener() {} },
   };
   for (const file of ['movement', 'progression', 'player', 'network']) {

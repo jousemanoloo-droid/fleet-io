@@ -5,6 +5,7 @@
 
 (function () {
   'use strict';
+  const I = window.FleetI18n, M = I.m;
 
   // ------------------------------------------------------------------
   // Configuración global
@@ -134,6 +135,11 @@
       if (window.FleetCompetitive) this._competitive = new window.FleetCompetitive.Competitive(this,C);
       if (window.FleetHazards) this._hazards = new window.FleetHazards.Hazards(this,C);
       this._cyber = new window.FleetCyber.Cyber(this, C);
+      const unsubscribe = I.subscribe(() => {
+        updateHUD();
+        this._updateLeaderboard(C.leaderboard || []);
+      });
+      this.events.once('shutdown', unsubscribe);
     }
 
     _setupAdHooks() {
@@ -167,7 +173,7 @@
         const deathId = C.deathId;
         const playerId = C.myId;
         const roomId = C.room?.roomId;
-        this._setRespawnBusy(true, 'Reproduciendo anuncio…');
+        this._setRespawnBusy(true, M('ad.playing'));
         window.AdManager.showRewardedAd(() => {
           // Ignorar resultados de un anuncio perteneciente a otra sesión/muerte.
           if (C.dead && C.deathId === deathId && C.myId === playerId && C.room?.roomId === roomId) {
@@ -175,7 +181,7 @@
           }
         }, () => {
           if (C.dead && C.deathId === deathId && C.myId === playerId && C.room?.roomId === roomId) {
-            this._setRespawnBusy(false, 'Anuncio cancelado o no disponible. Puedes reintentar o reiniciar.');
+            this._setRespawnBusy(false, M('ad.failure'));
           }
         });
       };
@@ -190,7 +196,7 @@
       for (const id of ['rewarded-respawn-btn', 'restart-btn']) {
         document.getElementById(id).disabled = busy || !C.connected;
       }
-      document.getElementById('death-status').textContent = message;
+      I.render(document.getElementById('death-status'), message);
     }
 
     _showDeath(me) {
@@ -201,20 +207,19 @@
       C.mutationsOpen = false;
       document.getElementById('mutate-overlay').classList.add('hidden');
       const saved = me.deathState || { score: me.score, scrap: me.scrap, drones: me.drones.length };
-      document.getElementById('death-summary').textContent =
-        `Puntuación: ${saved.score} · Chatarra: ${saved.scrap} · Escoltas: ${saved.drones}`;
+      I.render(document.getElementById('death-summary'), M('death.summary', saved));
       document.getElementById('death-overlay').classList.remove('hidden');
-      this._setRespawnBusy(false, window.AdManager?.mode === 'simulation' ? 'Anuncios en modo demostración.' : '');
+      this._setRespawnBusy(false, window.AdManager?.mode === 'simulation' ? M('ad.demo') : '');
       this._features?.died(me);
       document.getElementById('rewarded-respawn-btn').focus();
     }
 
     _requestRespawn(rewarded, deathId) {
       if (!C.connected) {
-        this._setRespawnBusy(false, 'Sin conexión al servidor.');
+        this._setRespawnBusy(false, M('status.offline'));
         return;
       }
-      this._setRespawnBusy(true, 'Restaurando nave…');
+      this._setRespawnBusy(true, M('status.restoring'));
       const playerId = C.myId;
       const roomId = C.room?.roomId;
       C.socket.timeout(8000).emit(
@@ -222,7 +227,7 @@
         (error, result) => {
           if (!C.dead || C.deathId !== deathId || C.myId !== playerId || C.room?.roomId !== roomId) return;
           if (error || !result?.ok) {
-            this._setRespawnBusy(false, result?.error || 'No hubo respuesta. Puedes reintentar.');
+            this._setRespawnBusy(false, I.error(result?.error));
           }
         }
       );
@@ -388,7 +393,7 @@
 
       socket.on('connect', () => {
         C.connected = true;
-        setStatus('Conectado al servidor - listo para lanzar', '');
+        setStatus(M('status.connected'), '');
       });
 
       socket.on('disconnect', () => {
@@ -415,11 +420,11 @@
         document.getElementById('mutate-overlay').classList.add('hidden');
         document.getElementById('overlay').classList.remove('hidden');
         document.getElementById('join-btn').disabled = false;
-        setStatus('Desconectado. Reconectando...', 'error');
+        setStatus(M('status.disconnect'), 'error');
       });
 
       socket.on('connect_error', () => {
-        setStatus('Error de conexión. Reintentando...', 'error');
+        setStatus(M('status.error'), 'error');
       });
 
       socket.on('welcome', (data) => {
@@ -449,7 +454,7 @@
         C._joinedAt = performance.now();
         C.joined = true;
         hideOverlay();
-        setStatus('¡Nave lanzada. Buena suerte, piloto!', '');
+        setStatus(M('status.launched'), '');
 
         this.cameras.main.setBounds(0, 0, C.world.width, C.world.height);
         this.physics?.world?.setBounds?.(0, 0, C.world.width, C.world.height);
@@ -470,7 +475,7 @@
 
       socket.on('playerCount', (n) => {
         C._playerCount = n;
-        document.getElementById('hud-players').textContent = String(n);
+        I.render(document.getElementById('hud-players'), String(n));
       });
       socket.on('roomInfo', info => {
         if (info.roomId !== C.room?.roomId) return;
@@ -489,7 +494,7 @@
         updateHUD();
         this._pulseCollectionHUD();
         if (data.droneGained) {
-          spawnFloatText(this, C.myId, '+1 DRÓN', 0xff00aa);
+          spawnFloatText(this, C.myId, M('drone.gained'), 0xff00aa);
         }
       });
 
@@ -512,7 +517,7 @@
         if (Array.isArray(data.mutations)) C._mutations = data.mutations;
         updateHUD();
         hideMutations();
-        spawnFloatText(this, C.myId, `${data.icon || '✦'} ${data.name || 'Mutación'}`, 0x00ff88);
+        spawnFloatText(this, C.myId, M('mutation.applied', { icon: data.icon || '✦', name: M(data.type ? 'mutation.' + data.type + '.name' : 'mutation.generic') }), 0x00ff88);
       });
 
       socket.on('gameState', (snap) => {
@@ -540,7 +545,7 @@
       socket.io.on('pong', () => {
         if (C._pingSentAt) {
           C.ping = Math.round(performance.now() - C._pingSentAt);
-          document.getElementById('hud-ping').textContent = String(C.ping);
+          I.render(document.getElementById('hud-ping'), String(C.ping));
         }
       });
 
@@ -621,7 +626,7 @@
         const state = {
           ...p,
           id: p.id,
-          name: p.name || 'Piloto',
+          name: p.name || I.t('pilot'),
           isBot: !!p.isBot,
           color: p.color || 0x00d4ff,
           score: p.score || 0,
@@ -1174,12 +1179,12 @@
       if (!cont.visible) return;
       const label = cont.getByName('name');
       label.y = id === C.kingId ? -62 : -38;
-      const name = (meta.name || 'Piloto').slice(0, 16);
+      const name = (meta.name || I.t('pilot')).slice(0, 16);
       const title = meta.titles?.includes('Leviathan Slayer') ? 'Leviathan Slayer' :
         meta.titles?.includes('Space Terror') ? 'Space Terror' : meta.titles?.includes('Dominator') ? 'Dominator' : '';
       const badge = title === 'Space Terror' ? '☠' : title === 'Leviathan Slayer' ? '✦' : '♛';
-      const nameplate = title ? `${badge} ${title}\n${name}` : name;
-      if (label.text !== nameplate) label.setText(nameplate);
+      const nameplate = title ? M('ship.nameplate', { badge, title: M('title.' + title), name }) : name;
+      I.render(label, nameplate, 'phaserText');
       const body = cont.getByName('body');
       const texture = 'ship-' + team + '-' + (meta.chassis || 1);
       if (body._chassisTexture !== texture) { body.setTexture(texture); body._chassisTexture = texture; }
@@ -1255,7 +1260,7 @@
   function setupUI() {
     const input = document.getElementById('name-input');
     const codeInput = document.getElementById('room-code-input');
-    input.value = localStorage.getItem('fleetio.name') || '';
+    try { input.value = localStorage.getItem('fleetio.name') || ''; } catch { input.value = ''; }
     const buttons = ['join-btn', 'create-room-btn', 'join-room-btn', 'singleplayer-btn'];
     const setJoining = busy => {
       C._joinPending = busy;
@@ -1264,17 +1269,17 @@
     const enter = (event, roomCode = '') => {
       if (C._joinPending) return;
       if (!C.socket || !C.connected) {
-        setStatus('Aún conectando al servidor…', 'connecting');
+        setStatus(M('status.connecting'), 'connecting');
         return;
       }
-      const name = input.value.trim() || 'Piloto';
-      localStorage.setItem('fleetio.name', name);
+      const name = input.value.trim() || I.t('pilot');
+      try { localStorage.setItem('fleetio.name', name); } catch { /* Optional in-memory profile. */ }
       setJoining(true);
-      setStatus('Preparando sala…', 'connecting');
+      setStatus(M('status.room'), 'connecting');
       C.socket.timeout(10000).emit(event, { name, roomCode }, (error, result) => {
         setJoining(false);
         if (error || !result?.ok) {
-          setStatus(result?.error || 'El servidor no respondió. Puedes reintentar.', 'error');
+          setStatus(I.error(result?.error), 'error');
         }
       });
     };
@@ -1284,7 +1289,7 @@
     document.getElementById('join-room-btn').onclick = () => {
       const code = codeInput.value.trim().toUpperCase();
       if (!/^[A-Z2-9]{6}$/.test(code)) {
-        setStatus('Introduce un código de 6 caracteres alfanuméricos.', 'error');
+        setStatus(M('status.code'), 'error');
         return;
       }
       enter('joinRoom', code);
@@ -1301,7 +1306,7 @@
       window.AdManager?.gameplayStop?.();
       document.getElementById('overlay').classList.remove('hidden');
       document.getElementById('resume-btn').hidden = !C.joined;
-      setStatus('Elige una sala o vuelve a tu partida.', '');
+      setStatus(M('status.menu'), '');
     };
     document.getElementById('resume-btn').onclick = hideOverlay;
     document.getElementById('copy-room-btn').onclick = async () => {
@@ -1310,9 +1315,9 @@
       const status = document.getElementById('room-copy-status');
       try {
         await navigator.clipboard.writeText(code);
-        status.textContent = 'Código copiado.';
+        I.render(status, M('status.copied'));
       } catch {
-        status.textContent = 'Copia manualmente el código mostrado arriba.';
+        I.render(status, M('status.copyManual'));
       }
     };
     setTimeout(() => input.focus(), 100);
@@ -1320,25 +1325,24 @@
 
   function updateRoomHUD(room) {
     const label = document.getElementById('hud-room');
-    if (label) label.textContent = room
-      ? (room.type === 'private' ? 'SALA PRIVADA' : room.type === 'singleplayer' ? 'MODO: SOLITARIO' : 'MODO: PÚBLICO') +
-        ' · ' + room.humans + ' pilotos · ' + room.bots + ' bots'
-      : 'MODO: SIN SALA';
+    if (label) I.render(label, room
+      ? M('room.info', { mode: M('room.' + (room.type === 'private' ? 'private' : room.type === 'singleplayer' ? 'solo' : 'public')), humans: room.humans, bots: room.bots })
+      : M('room.none'));
     const codePanel = document.getElementById('room-code-panel');
     if (codePanel) codePanel.hidden = !room?.code;
     const code = document.getElementById('hud-room-code');
-    if (code) code.textContent = room?.code || '';
+    if (code) I.render(code, room?.code || '');
     const count = document.getElementById('hud-players');
-    if (count) count.textContent = String((room?.humans || 0) + (room?.bots || 0));
+    if (count) I.render(count, String((room?.humans || 0) + (room?.bots || 0)));
     const status = document.getElementById('room-copy-status');
-    if (status) status.textContent = '';
+    if (status) I.render(status, '');
   }
 
   function setStatus(text, cls) {
     const s = document.getElementById('status');
     if (!s) return;
     s.className = 'status' + (cls ? ' ' + cls : '');
-    s.textContent = text;
+    I.render(s, text);
   }
 
   function hideOverlay() {
@@ -1358,18 +1362,18 @@
     const score = document.getElementById('hud-score');
     const scrap = document.getElementById('hud-scrap');
     const drones = document.getElementById('hud-drones');
-    if (score && score.textContent !== String(C._score || 0)) score.textContent = String(C._score || 0);
-    if (scrap && scrap.textContent !== String(C._scrap || 0)) scrap.textContent = String(C._scrap || 0);
-    if (drones && drones.textContent !== `${C._drones || 0} / 12`) drones.textContent = `${C._drones || 0} / 12`;
+    if (score && score.textContent !== String(C._score || 0)) I.render(score, String(C._score || 0));
+    if (scrap && scrap.textContent !== String(C._scrap || 0)) I.render(scrap, String(C._scrap || 0));
+    if (drones && drones.textContent !== `${C._drones || 0} / 12`) I.render(drones, `${C._drones || 0} / 12`);
     const hp = document.getElementById('hud-hp');
     const level = document.getElementById('hud-level');
     const bar = document.getElementById('hud-hp-bar');
-    if (hp && hp.textContent !== `${C._hp}/${C._maxHp}`) hp.textContent = `${C._hp}/${C._maxHp}`;
-    if (level && level.textContent !== String(C._level)) level.textContent = String(C._level);
+    if (hp && hp.textContent !== `${C._hp}/${C._maxHp}`) I.render(hp, `${C._hp}/${C._maxHp}`);
+    if (level && level.textContent !== String(C._level)) I.render(level, String(C._level));
     const progressNode = document.getElementById('hud-level-progress');
     if (progressNode && window.FleetProgression) {
-      const text = C._level >= 40 ? 'MÁXIMO · 40' : `${C._xp} / ${window.FleetProgression.requiredXP(C._level)} XP`;
-      if (progressNode.textContent !== text) progressNode.textContent = text;
+      const text = C._level >= 40 ? M('level.max') : `${C._xp} / ${window.FleetProgression.requiredXP(C._level)} XP`;
+      if (progressNode.textContent !== String(text)) I.render(progressNode, text);
     }
     if (bar) {
       bar.style.width = `${Math.max(0, Math.min(100, C._hp / C._maxHp * 100))}%`;
@@ -1388,11 +1392,11 @@
     window.AdManager?.gameplayStop?.();
     const box = document.getElementById('mutate-options');
     box.replaceChildren();
-    document.getElementById('mutate-level').textContent = String(level);
+    I.render(document.getElementById('mutate-level'), String(level));
     for (const option of options) {
       const button = document.createElement('button');
       button.className = `mutate-option ${option.rarity === 'raro' ? 'raro' : ''}`;
-      button.textContent = `${option.icon || '✦'} ${option.name} — ${option.desc}`;
+      I.render(button, M('mutation.card', { icon: option.icon || '✦', name: M('mutation.' + option.type + '.name'), description: M('mutation.' + option.type + '.desc') }));
       button.onclick = () => {
         if (C.dead || !C.connected) return;
         C.socket.emit('selectUpgrade', { type: option.type });
@@ -1406,7 +1410,7 @@
   function spawnFloatText(scene, playerId, text, color) {
     const pos = C.renderState.get(playerId);
     if (!pos) return;
-    const t = scene.add.text(pos.x, pos.y - 40, text, {
+    const t = scene.add.text(pos.x, pos.y - 40, String(text), {
       fontFamily: 'Segoe UI, sans-serif',
       fontSize: '14px',
       color: `#${color.toString(16).padStart(6, '0')}`,
@@ -1414,13 +1418,14 @@
       strokeThickness: 3,
       fontStyle: 'bold',
     }).setOrigin(0.5);
+    I.render(t, text, 'phaserText');
     scene.tweens.add({
       targets: t,
       y: pos.y - 90,
       alpha: { from: 1, to: 0 },
       duration: 1100,
       ease: 'Cubic.easeOut',
-      onComplete: () => t.destroy(),
+      onComplete: () => { I.unbind(t); t.destroy(); },
     });
   }
 
@@ -1437,13 +1442,13 @@
 
   // Construye el HTML interno de una fila del leaderboard (rank, medalla, nombre, score)
   function buildLbRowInner(p, rank) {
-    const name = escapeHtml((p.name || 'Piloto').slice(0, 16));
+    const name = escapeHtml((p.name || I.t('pilot')).slice(0, 16));
     const score = p.score || 0;
     const rankClass = rank <= 3 ? `r${rank}` : '';
     const medalGlyph = rank === 1 ? '1' : rank === 2 ? '2' : rank === 3 ? '3' : String(rank);
     const titles = rank <= 5 ? (p.titles || []).filter(title => ['Space Terror', 'Leviathan Slayer', 'Dominator'].includes(title)) : [];
     const titleHTML = titles.length ? `<small class="lb-title">${escapeHtml(titles.map(title =>
-      `${title === 'Space Terror' ? '☠' : title === 'Leviathan Slayer' ? '✦' : '♛'} ${title}`).join(' · '))}</small>` : '';
+      `${title === 'Space Terror' ? '☠' : title === 'Leviathan Slayer' ? '✦' : '♛'} ${I.t('title.' + title)}`).join(' · '))}</small>` : '';
     return `
       <span class="lb-rank ${rankClass}">${rank}.</span>
       <span class="lb-medal ${rankClass}">${medalGlyph}</span>
@@ -1460,7 +1465,7 @@
       badge.className = 'lb-score-delta up';
       row.appendChild(badge);
     }
-    badge.textContent = `+${delta}`;
+    I.render(badge, `+${delta}`);
     badge.classList.add('show');
     clearTimeout(badge._t);
     badge._t = setTimeout(() => badge.classList.remove('show'), 900);

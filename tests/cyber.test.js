@@ -1,8 +1,9 @@
 'use strict';
+const i18n = () => require('../client/js/i18n')(require('../client/js/translations'));
 const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), vm = require('node:vm');
 function fixture(density = 1) {
-  const window = {}, camera = { zoom: 1, width: 1280, height: 720, scrollX: 0, scrollY: 0,
+  const window = { FleetI18n: i18n() }, camera = { zoom: 1, width: 1280, height: 720, scrollX: 0, scrollY: 0,
     worldView: { contains: () => true }, setZoom(value) { this.zoom = value; }, shake() {} };
   vm.runInNewContext(fs.readFileSync('client/js/cyber.js', 'utf8'), {
     window, Phaser: { Renderer: { WebGL: { Pipelines: { PostFXPipeline: class {} } } } },

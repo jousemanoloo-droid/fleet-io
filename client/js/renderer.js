@@ -1,6 +1,7 @@
 // RAF sigue el refresco del monitor; target orienta el reloj, no promete FPS.
 (function (global) {
   'use strict';
+  const I = window.FleetI18n, M = I.m;
   function config(parent, scenes) {
     return {
       type: Phaser.WEBGL, parent: 'game',
@@ -20,7 +21,7 @@
     scene._metricFrames = (scene._metricFrames || 0) + 1;
     scene._metricAt ??= now;
     if (now - scene._metricAt < 1000) return;
-    node.textContent = `${Math.round(scene._metricFrames * 1000 / (now - scene._metricAt))} FPS · WebGL · red 30 Hz`;
+    I.render(node, M('metrics', { fps: Math.round(scene._metricFrames * 1000 / (now - scene._metricAt)) }));
     scene._metricAt = now; scene._metricFrames = 0;
   }
   function installMetrics() {
@@ -28,7 +29,7 @@
     const node = document.createElement('div');
     node.id = 'fleet-debug';
     node.style.cssText = 'position:fixed;bottom:10px;left:10px;z-index:9999;color:#88efff;background:#071321dd;padding:8px;font:12px monospace;pointer-events:none';
-    node.textContent = 'Midiendo FPS…';
+    I.render(node, M('metrics.loading'));
     document.body.append(node);
   }
   global.FleetRenderer = { config, metrics, installMetrics };

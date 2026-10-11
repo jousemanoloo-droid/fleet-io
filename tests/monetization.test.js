@@ -1,4 +1,5 @@
 'use strict';
+const i18n = () => require('../client/js/i18n')(require('../client/js/translations'));
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -76,7 +77,7 @@ test('safe spawn chooses clearance from other fleets', () => {
 });
 
 function adManager() {
-  const window = {};
+  const window = { FleetI18n: i18n() };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../client/monetization.js'), 'utf8'), { window });
   return window.AdManager;
 }
@@ -223,7 +224,7 @@ test('client death modal blocks input, retries cancelled ads and waits for serve
   const context = {
     Phaser: { Scene: class {} }, performance: { now: () => 1000 }, io: () => socket,
     document: { readyState: 'loading', addEventListener() {}, getElementById: node },
-    window: { io: () => socket, AdManager: {
+    window: { FleetI18n: i18n(), io: () => socket, AdManager: {
       showRewardedAd(ok, fail) { success = ok; failure = fail; },
       gameplayStart() { gameplay.push('start'); }, gameplayStop() { gameplay.push('stop'); },
     } },

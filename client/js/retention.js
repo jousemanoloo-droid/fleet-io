@@ -2,6 +2,7 @@
 // este módulo interpola sus objetos y presenta efectos sin alterar la física.
 (function (global) {
   'use strict';
+  const I = window.FleetI18n, M = I.m;
   class Retention {
     constructor(scene, state) {
       this.scene = scene; this.C = state; this.world = { g: [], c: [], q: [], boss: null };
@@ -75,17 +76,17 @@
       on('gem_collected', () => this.pickup());
       on('scrapCollected', () => this.pickup());
       on('core_collected', data => {
-        this.pickup(); if (data.recovered) { this.features.announce('PROGRESS RECOVERED!', '#ffd76c', 30); this.tone(2, 0.35); }
+        this.pickup(); if (data.recovered) { this.features.announce(M('world.recovered'), '#ffd76c', 30); this.tone(2, 0.35); }
       });
       on('coin_reward', data => this.reward(data));
       on('profile_unlock', data => this.features.economy.unlockTitle(data.title));
       on('NARROW_ESCAPE', data => this.escape(data));
-      on('BOUNTY_ANNOUNCEMENT', data => this.notify(`☠ BOUNTY: ${data.targetUsername} · 5000 ◈`));
-      on('BOUNTY_CLAIMED', data => this.features.announce(`BOUNTY CLAIMED BY ${data.username}!`, '#ffd56a', 30));
-      on('METEOR_WARN', data => this.notify(`WARNING: METEOR STORM IN CENTRAL SECTOR IN ${Math.ceil(data.inMs / 1000)}s`, 15000, 2));
-      on('METEOR_START', () => this.notify('GOLD TIDE · 15 ASTEROIDES EN EL SECTOR (0, 0)', 7000));
-      on('BOSS_SPAWN', () => this.notify('LEVIATHAN · JEFE EN EL CENTRO DEL MAPA', 8000));
-      on('BOSS_DEFEATED', data => { this.features.announce(`LEVIATHAN DEFEATED · ${data.username}`, '#ffd56a', 30); this.ice.emitParticleAt(data.x, data.y, 40); });
+      on('BOUNTY_ANNOUNCEMENT', data => this.notify(M('world.bounty', { name: data.targetUsername })));
+      on('BOUNTY_CLAIMED', data => this.features.announce(M('world.bountyClaimed', { name: data.username }), '#ffd56a', 30));
+      on('METEOR_WARN', data => this.notify(M('world.meteorWarn', { seconds: Math.ceil(data.inMs / 1000) }), 15000, 2));
+      on('METEOR_START', () => this.notify(M('world.meteor'), 7000));
+      on('BOSS_SPAWN', () => this.notify(M('world.boss'), 8000));
+      on('BOSS_DEFEATED', data => { this.features.announce(M('world.bossDefeated', { name: data.username }), '#ffd56a', 30); this.ice.emitParticleAt(data.x, data.y, 40); });
       on('asteroid_destroyed', data => { if (this.scene._effectVisible(data.x, data.y)) this.gold.emitParticleAt(data.x, data.y, 20); });
       on('death_fx', data => this.killFX(data));
       on('welcome', () => this.reset());
@@ -117,12 +118,12 @@
       const world = snapshot.w || {};
       this.world = { ...world, g: world.g || [], c: world.c || [], q: world.q || [], boss: world.boss || null };
       if (this.world.meteorIn <= 15000 && this.world.meteorIn > 0 && !this.banner.textContent)
-        this.notify(`WARNING: METEOR STORM IN CENTRAL SECTOR IN ${Math.ceil(this.world.meteorIn / 1000)}s`, this.world.meteorIn, 2);
+        this.notify(M('world.meteorWarn', { seconds: Math.ceil(this.world.meteorIn / 1000) }), this.world.meteorIn, 2);
     }
     notify(text, duration = 5000, priority = 0) {
       const now = performance.now();
       if (now < this.bannerUntil && priority < (this.bannerPriority || 0)) return;
-      this.banner.textContent = text; this.bannerUntil = now + duration; this.bannerPriority = priority;
+      I.render(this.banner, text); this.bannerUntil = now + duration; this.bannerPriority = priority;
     }
     pickup() {
       const now = performance.now();
@@ -147,17 +148,18 @@
     }
     escape(data) {
       this.slowUntil = performance.now() + 500;
-      this.floatText(data.x, data.y, 'NARROW ESCAPE! +200 XP'); this.tone(2.2, 0.3);
+      this.floatText(data.x, data.y, M('world.escape')); this.tone(2.2, 0.3);
     }
     floatText(x, y, message) {
       if (this.activeTexts.size >= 12) return;
       const text = this.textPool.pop() || this.scene.add.text(0, 0, '', { fontFamily: 'system-ui', fontSize: '24px',
         fontStyle: 'bold', color: '#ffe1a0', stroke: '#a36e09', strokeThickness: 5 }).setOrigin(0.5).setDepth(100);
-      text.setPosition(x, y - 40).setText(message).setAlpha(1).setScale(0.2).setVisible(true);
+      I.render(text, message, 'phaserText');
+      text.setPosition(x, y - 40).setAlpha(1).setScale(0.2).setVisible(true);
       this.activeTexts.add(text);
       this.scene.tweens.add({ targets: text, scale: 1, y: y - 100, duration: 650, ease: 'Back.Out',
         onComplete: () => this.scene.tweens.add({ targets: text, alpha: 0, duration: 400,
-          onComplete: () => { this.activeTexts.delete(text); text.setVisible(false); this.textPool.push(text); } }) });
+          onComplete: () => { this.activeTexts.delete(text); I.unbind(text); text.setVisible(false); this.textPool.push(text); } }) });
     }
     // Pool común: las gemas y los núcleos reutilizan imágenes, no crean emisores
     // ni Graphics por frame. Desaparecer de un snapshot devuelve la imagen al pool.
@@ -187,16 +189,16 @@
       node.hidden = this.C.dead || this.C.menuOpen || (!always && factor >= 1);
       node.style.left = `${width / 2 + dx * factor}px`; node.style.top = `${height / 2 + dy * factor}px`;
       node.style.color = color; node.style.opacity = String(always ? 0.65 + Math.sin(now / 150) * 0.3 : 1);
-      node.firstChild.textContent = always ? '☠' : '➤';
+      I.render(node.firstChild, always ? '☠' : '➤');
       node.firstChild.style.transform = always ? '' : `rotate(${Math.atan2(dy, dx)}rad)`;
       const p = this.C.renderState.get(this.C.myId);
-      node.lastChild.textContent = `${label} · ${Math.floor(Math.hypot(target.x - (p?.x || 0), target.y - (p?.y || 0)) / 10)} m`;
+      I.render(node.lastChild, M('world.distance', { label, distance: Math.floor(Math.hypot(target.x - (p?.x || 0), target.y - (p?.y || 0)) / 10) }));
     }
     update(now, delta) {
       if (now - this.lastRewardFlush >= 100) { this.lastRewardFlush = now; this.flushRewards(); }
       this.vignette.setDisplaySize(this.scene.scale.width, this.scene.scale.height);
       if (now - this.lastPickup > 1500) this.comboPickupCount = 0;
-      if (now > this.bannerUntil) this.banner.textContent = '';
+      if (now > this.bannerUntil) I.render(this.banner, '');
       for (const spiral of this.spirals) {
         const fraction = Math.min(1, (now - spiral.start) / 700);
         spiral.images.forEach((image, index) => {
@@ -215,7 +217,7 @@
       const arrows = new Set();
       for (const [id, owner, x, y] of this.world.c) {
         active.add(id); this.object(id, x, y, 'energy-core', 0.8 + Math.sin(now / 200) * 0.1, delta).clearTint();
-        if (owner === this.C.myId) { arrows.add(id); this.indicator(id, { x, y }, 'NÚCLEO', '#ffcf55', false, now); }
+        if (owner === this.C.myId) { arrows.add(id); this.indicator(id, { x, y }, M('world.core'), '#ffcf55', false, now); }
       }
       for (const [id, name, x, y] of this.world.q) if (id !== this.C.myId) {
         const key = 'bounty:' + id; arrows.add(key); this.indicator(key, { x, y }, name, '#ff406e', true, now);
@@ -227,7 +229,7 @@
       }
       const me = this.C.renderState.get(this.C.myId);
       this.bossBar.hidden = !b || !me || this.C.dead || this.C.menuOpen;
-      if (b) { this.bossLabel.textContent = `LEVIATHAN · ${Math.ceil(b[3])} / ${b[4]} HP · ${b[6]}`;
+      if (b) { I.render(this.bossLabel, M('world.bossHP', { hp: Math.ceil(b[3]), maxHp: b[4], phase: M('world.' + b[6]) }));
         this.bossFill.max = b[4]; this.bossFill.value = b[3]; }
       for (const [id, image] of this.objects) if (!active.has(id)) {
         image.setVisible(false); this.objects.delete(id); this.pool.push(image);
@@ -272,12 +274,12 @@
     reset() {
       this.flushRewards();
       this.world = { g: [], c: [], q: [], boss: null }; this.stopPulse(); this.comboPickupCount = 0;
-      this.slowUntil = 0; this.banner.textContent = ''; this.bossBar.hidden = true;
+      this.slowUntil = 0; I.render(this.banner, ''); this.bossBar.hidden = true;
       for (const node of this.indicators.values()) node.remove(); this.indicators.clear();
       for (const image of this.objects.values()) { image.setVisible(false); this.pool.push(image); } this.objects.clear();
       for (const image of this.timed) { this.scene.tweens.killTweensOf(image); image.setVisible(false); this.fxPool.push(image); }
       this.timed.clear(); this.spirals.clear();
-      for (const text of this.activeTexts) { this.scene.tweens.killTweensOf(text); text.setVisible(false); this.textPool.push(text); } this.activeTexts.clear();
+      for (const text of this.activeTexts) { this.scene.tweens.killTweensOf(text); I.unbind(text); text.setVisible(false); this.textPool.push(text); } this.activeTexts.clear();
     }
     destroy() {
       this.reset(); for (const [event, handler] of Object.entries(this.handlers)) this.C.socket.off(event, handler);

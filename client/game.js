@@ -1,10 +1,11 @@
 // Punto de entrada estable; módulos y escena viven en client/js/.
 (function () {
   'use strict';
+  const I = window.FleetI18n, M = I.m;
   const boot = () => window.FleetGame.boot().catch(error => {
-    console.error('No se pudo iniciar FLEET.IO:', error);
+    console.error('Unable to start FLEET.IO:', error);
     const status = document.getElementById('status');
-    if (status) status.textContent = 'No se pudo iniciar WebGL. Revisa la consola del navegador.';
+    if (status) I.render(status, M('status.webgl'));
   });
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
   else boot();

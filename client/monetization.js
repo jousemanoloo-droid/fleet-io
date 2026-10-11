@@ -1,6 +1,7 @@
 // CrazyGames SDK v3 + simulación fuera del portal. Independiente de Phaser.
 (function (global) {
   'use strict';
+  const I = window.FleetI18n, M = I.m;
 
   class SimulatedAdAdapter {
     showRewardedAd() { return this._show(3); }
@@ -12,26 +13,27 @@
         overlay.className = 'ad-overlay';
         overlay.setAttribute('role', 'dialog');
         overlay.setAttribute('aria-modal', 'true');
-        overlay.setAttribute('aria-label', 'Anuncio de demostración');
+        I.render(overlay, M('ad.title'), '@aria-label');
         const panel = document.createElement('div');
         panel.className = 'panel';
         const label = document.createElement('p');
         const cancel = document.createElement('button');
         cancel.className = 'btn death-secondary';
-        cancel.textContent = 'Cancelar anuncio';
+        I.render(cancel, M('ad.cancel'));
         panel.append(label, cancel);
         overlay.append(panel);
         document.body.append(overlay);
         let remaining = seconds;
-        label.textContent = `Anuncio simulado · ${remaining}s`;
+        I.render(label, M('ad.simulated', { seconds: remaining }));
         const finish = (completed) => {
           clearInterval(timer);
+          [overlay, label, cancel].forEach(node => I.unbind(node));
           overlay.remove();
           resolve(completed);
         };
         const timer = setInterval(() => {
           remaining--;
-          label.textContent = `Anuncio simulado · ${remaining}s`;
+          I.render(label, M('ad.simulated', { seconds: remaining }));
           if (remaining <= 0) finish(true);
         }, 1000);
         cancel.onclick = () => finish(false);
@@ -133,7 +135,7 @@
       if (this.busy) throw new Error('Hay un anuncio en curso');
       if (!adapter || typeof adapter.showRewardedAd !== 'function' ||
           typeof adapter.showInterstitialAd !== 'function') {
-        throw new TypeError('Adaptador de anuncios inválido');
+        throw new TypeError('Invalid advertising adapter');
       }
       this.adapter = adapter;
     }

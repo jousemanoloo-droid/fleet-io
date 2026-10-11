@@ -683,3 +683,26 @@ La medida de FPS del modo `?debug=1` es una observación local, no una garantía
 cualquier GPU, móvil, conexión o cantidad de jugadores en producción.
 
 Los dominios publicados https://fleet-io-d45d5.web.app y https://fleet-io-d45d5.firebaseapp.com están autorizados explícitamente en producción. CLIENT_ORIGINS añade otros orígenes exactos; no se utiliza un comodín público.
+
+### Idioma del cliente (EN / ES)
+
+El primer acceso siempre carga en inglés, independientemente del idioma del navegador.
+El botón neón **EN → ES / ES → EN** del menú cambia el idioma inmediatamente. La
+preferencia se guarda en `localStorage` con la clave `fleetio.language`; si el
+almacenamiento está bloqueado, el selector sigue funcionando durante la sesión.
+
+Todos los textos traducibles están en `client/js/translations.js`. `client/js/i18n.js`
+se carga antes del resto del cliente. Los atributos `data-i18n` traducen el HTML;
+`FleetI18n.m(key, params)` y `FleetI18n.render(target, message, property)` mantienen
+actualizados los textos dinámicos del DOM y de Phaser (`property: 'phaserText'`).
+Los parámetros pueden contener otros mensajes traducibles, números o nombres de
+jugadores. Nunca se modifica el nombre elegido, el código de sala, un ID de habilidad
+ni el protocolo de red por cambiar el idioma.
+
+Los errores conocidos del backend se traducen en el cliente, incluso si proceden de
+una versión anterior del servidor en español. Las referencias a los objetos de texto
+son débiles y los efectos temporales se desvinculan al finalizar. El cambio de idioma
+no recarga la página ni reinicia la escena, la partida o el ciclo de anuncios.
+
+Comprobaciones del diccionario, valores por defecto, almacenamiento, textos vivos y
+mensajes del servidor: `node --test tests/i18n.test.js`.

@@ -1,4 +1,5 @@
 'use strict';
+const i18n = () => require('../client/js/i18n')(require('../client/js/translations'));
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -14,7 +15,7 @@ function fixture(environment = 'crazygames', init = async () => {}) {
     game: { gameplayStart: () => calls.push('start'), gameplayStop: () => calls.push('stop') },
     ad: { requestAd(type, callbacks) { requests.push({ type, callbacks }); return Promise.resolve(); } },
   };
-  const window = { CrazyGames: { SDK } };
+  const window = { FleetI18n: i18n(), CrazyGames: { SDK } };
   vm.runInNewContext(source, { window, setTimeout, clearTimeout });
   return { manager: window.AdManager, SDK, calls, requests };
 }
@@ -95,7 +96,7 @@ test('local, disabled and absent SDK use simulation; portal initialization failu
     manager.gameplayStart();
     assert.deepEqual(calls, []);
   }
-  const window = {};
+  const window = { FleetI18n: i18n() };
   vm.runInNewContext(source, { window });
   assert.equal(await window.AdManager.ready, 'simulation');
   const { manager } = fixture('crazygames', async () => { throw Error('Initialization failed'); });

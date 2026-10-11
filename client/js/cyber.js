@@ -1,5 +1,6 @@
 (function (global) {
   'use strict';
+  const I = window.FleetI18n, M = I.m;
   const registered = new WeakSet();
   class Chromatic extends Phaser.Renderer.WebGL.Pipelines.PostFXPipeline {
     constructor(game) {
@@ -33,7 +34,7 @@
         speed: { min: 0, max: 24 }, scale: { start: 0.38, end: 0 }, alpha: { start: 0.95, end: 0 },
         tint: [0x00ffff, 0xff37d7], blendMode: Phaser.BlendModes.ADD, maxParticles: 256, maxAliveParticles: 256 }).setDepth(4);
       this.button = document.createElement('button'); this.button.className = 'blitz-button';
-      this.button.textContent = 'E · ENJAMBRE'; this.button.onclick = () => this.launch();
+      I.render(this.button, M('ability.swarm')); this.button.onclick = () => this.launch();
       document.body.append(this.button);
       this.key = event => { if (!event.repeat) this.launch(); };
       scene.input.keyboard.on('keydown-E', this.key);
@@ -121,7 +122,7 @@
       this.button.hidden = !C.joined || C.dead || C.menuOpen;
       this.button.disabled = this.pending || remaining > 0;
       this.button.style.setProperty('--cooldown', `${remaining / 8000 * 360}deg`);
-      this.button.textContent = remaining > 0 ? `E · ${Math.ceil(remaining / 1000)}s` : 'E · ENJAMBRE';
+      I.render(this.button, remaining > 0 ? M('ability.swarmCooldown', { seconds: Math.ceil(remaining / 1000) }) : M('ability.swarm'));
     }
     idle() { this.button.hidden = true; this.grid.setVisible(false); this.scene.tweens.timeScale = 1; this.chromatic.amount = 0;
       for (const object of this.scene.children.list) if (object.type === 'ParticleEmitter') object.timeScale = 1; }
