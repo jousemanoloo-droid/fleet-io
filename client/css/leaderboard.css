@@ -1,0 +1,12 @@
+#leaderboard{pointer-events:auto;width:min(310px,calc(100vw - 32px));overflow:hidden}
+.rank-toggle{display:flex;gap:12px;align-items:center;justify-content:space-between;width:100%;background:transparent;border:0;color:#a0ffe9;cursor:pointer;font:700 12px system-ui;padding:5px 0;text-align:left}
+.rank-content{max-height:650px;opacity:1;overflow:hidden;transition:max-height .25s ease,opacity .2s ease}
+.leaderboard.collapsed .rank-content{max-height:0;opacity:0;pointer-events:none;visibility:hidden}
+.leaderboard.collapsed h3{display:none}.leaderboard.collapsed{width:190px;padding:8px 12px}
+.rank-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px;margin:8px 0}
+.rank-tabs .feature-button{padding:8px 3px;margin:0;font-size:10px;letter-spacing:0;overflow-wrap:anywhere;white-space:normal;min-width:0}
+.rank-tabs .active{background:#00ffcc20;border-color:#00ffcc;color:#a6ffed}
+.rank-toggle:focus-visible,.rank-tabs button:focus-visible{outline:2px solid #00ffcc;outline-offset:2px}
+#lb-rows{max-height:min(420px,50vh);overflow-y:auto}.rank-row{min-width:0}.rank-row strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:700px){.hud-top-right{right:8px;top:300px}#leaderboard{width:min(235px,calc(100vw - 16px))}.leaderboard.collapsed{width:170px}.rank-tabs .feature-button{font-size:9px}}
+@media(prefers-reduced-motion:reduce){.rank-content{transition:none}}

@@ -25,7 +25,7 @@ test('authoritative shots carry unique sequence/life, scaled muzzle and packed v
   room.players.set(a.id,a);room.players.set(b.id,b);
   updateCombat(room,1);
   const shots=[...room.projectiles.values()].filter(s=>s.ownerId==='a');
-  assert.equal(shots.length,4); assert.ok(shots.every(s=>s.vx===55 && s.deathId===a.deathId));
+  assert.equal(shots.length,4); assert.ok(shots.every(s=>Math.abs(s.vx-55)<.1 && s.deathId===a.deathId));
   assert.equal(new Set(shots.map(s=>s.fireSeq)).size,4);
   const decoded = Network.player(Network.packPlayer(a));
   assert.equal(decoded.radius,44); assert.equal(decoded.fireSeq,4);
@@ -41,7 +41,7 @@ test('sector snapshots cull distant objects, retain ranking and rebase safely ac
   room.players.set('a',a);room.players.set('b',b);
   room.spawnScrap(1200,500);room.spawnScrap(3200,3200);
   room.loop.tickCount=1;room.loop._broadcastState();
-  const decoder=new Network.Decoder();const first=packets.find(p=>p.id==='a').data;
+  const decoder=new Network.Decoder();const first=packets.find(p=>p.id==='a' && p.event==='gameState').data;
   assert.deepEqual(first.p.map(p=>p[0]),['a']);assert.equal(first.s.length,1);
   assert.equal(first.leaderboard[0].id,'b');decoder.receive(first);
   a.x=1001;room.loop.tickCount=2;room.loop._broadcastState();
@@ -72,7 +72,7 @@ function poolFixture() {
       for(const name of ['setDepth','setScale','setBlendMode','setActive','setVisible','setTint']) sprite[name]=()=>sprite;
       sprite.setPosition=(x,y)=>{sprite.x=x;sprite.y=y;return sprite;};return sprite;
     }})}}};
-  const window={FleetBallistics:Ballistics},C={myId:'a',joined:true,dead:false,menuOpen:false,tick:0,playerStates:new Map(),renderState:new Map()};
+  const window={FleetBallistics:Ballistics,FleetShipClasses:require('../client/js/ship-classes')},C={myId:'a',joined:true,dead:false,menuOpen:false,tick:0,playerStates:new Map(),renderState:new Map()};
   vm.runInNewContext(fs.readFileSync('client/js/projectiles.js','utf8'),{window,Phaser:{BlendModes:{ADD:1}}});
   const pool=new window.FleetProjectiles(scene,C);return {pool,C,scene,count:()=>created};
 }

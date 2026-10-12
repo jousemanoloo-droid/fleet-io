@@ -3,19 +3,23 @@
 (function (global) {
   'use strict';
   const I = window.FleetI18n, M = I.m;
-  const SKIN_COLORS = { default: 0xffffff, alien: 0x77ff99, gold: 0xffd260, chrome: 0xd9e3ed, cyber: 0x88eaff, void: 0xb193ff, solar: 0xffb84d };
+  const SKIN_COLORS = { default: 0xffffff, alien: 0x77ff99, gold: 0xffd260, chrome: 0xd9e3ed, cyber: 0x88eaff, void: 0xb193ff, solar: 0xffb84d, starlight:0xe8c8ff, void_stalker:0xc97aff };
   const TRAIL_COLORS = { cyan: 0x20dfff, orange: 0xffa039, purple: 0xb16cff };
-  const ATTRIBUTES = { speed: ['attributes.speed', 10], shield: ['attributes.shield', 10],
-    damage: ['attributes.damage', 10], fireRate: ['attributes.fireRate', 20] };
+  const ATTRIBUTES = { speed: ['attributes.speed', 10], fireRate: ['attributes.fireRate', 20],
+    damage: ['attributes.damage', 10], regen: ['attributes.regen',10], vision: ['attributes.vision',10] };
   class Features {
     constructor(scene, state, track) {
       this.scene = scene; this.C = state; this.track = track; this.blocking = false;
       this.economy = new global.FleetEconomy.Economy();
+      this.economy.bindAccount(state.socket,()=>{if(!this.destroyed && this.shopButton)this.currency();});
       this.me = null; this.matchId = null; this.matchClosed = true; this.lastUI = 0;
       this.ghostAt = this.auraAt = 0; this.audio = null; this.muted = false;
       this.revenge = null; this.keys = {}; this.abilityPending = new Set();
       this.lastPointOffer = 0;
       this.buildUI(); this.bind();
+      if(global.FleetGarageUI) this.garage=new global.FleetGarageUI(this);
+      if(this.C.connected) this.syncClock();
+      global.FleetGarageLoadout=()=>({...this.economy.state.equipped});
       scene.events.once('shutdown', () => this.destroy());
       // Daily rewards remain accessible in the shop without blocking first play.
     }
@@ -26,7 +30,7 @@
     buildUI() {
       this.bar = document.createElement('div'); this.bar.className = 'feature-bar';
       this.abilityButtons = {};
-      for (const [type, label] of [['dash', 'ability.dash'], ['shield', 'ability.shield'], ['emp', 'ability.emp'], ['parry', 'ability.parry']]) {
+      for (const [type, label] of [['dash', 'ability.dash'], ['shield', 'ability.shield'], ['emp', 'ability.emp'], ['parry', 'ability.parry'], ['cloak','ability.cloak']]) {
         const button = this.button(M(label), () => this.ability(type));
         button.dataset.labelKey = label; this.abilityButtons[type] = button; this.bar.append(button);
       }
@@ -61,8 +65,9 @@
       this.modal.classList.add('hidden'); this.blocking = false; this.track();
       if (this.focusBefore?.isConnected) this.focusBefore.focus();
     }
-    currency() { I.render(this.shopButton, M('shop.title', { coins: this.economy.state.coins })); }
+    currency() { I.render(this.shopButton, M('garage.title', { credits: this.economy.state.coins }));this.scene._stashUI?.refreshMenu();this.scene._mainMenu?.render(); }
     daily() {
+      if(this.garage) {this.garage.open();return;}
       if (!this.open(M('daily.title'))) return;
       const text = document.createElement('p');
       I.render(text, M('daily.explain'));
@@ -74,6 +79,7 @@
       this.closeButton();
     }
     shop() {
+      if(this.garage) {this.garage.open();return;}
       if (!this.open(M('shop.title', { coins: this.economy.state.coins }))) return;
       if (this.economy.canClaimDaily()) this.panel.append(this.button(M('daily.title'),()=>this.daily()));
       for (const type of ['skins', 'trails', 'effects']) {
@@ -130,7 +136,7 @@
       this.panel.append(grid); this.closeButton();
     }
     bind() {
-      for (const [key, type] of [['SHIFT', 'dash'], ['Q', 'shield'], ['R', 'emp'], ['F', 'parry']]) {
+      for (const [key, type] of [['SHIFT', 'dash'], ['Q', 'shield'], ['R', 'emp'], ['F', 'parry'], ['C','cloak']]) {
         const handler = event => { if (!event?.repeat) this.ability(type); };
         this.scene.input.keyboard.on('keydown-' + key, handler); this.keys[key] = handler;
       }
@@ -184,7 +190,7 @@
     ability(type) {
       const focus = document.activeElement;
       if (focus?.matches('input, textarea') || !this.C.connected || !this.C.joined || this.C.dead ||
-          this.C.menuOpen || this.C.mutationsOpen || this.blocking || global.AdManager?.busy || this.abilityPending.has(type)) return;
+          this.C.menuOpen || this.C.mutationsOpen || this.C.evolutionPaused || this.blocking || this.scene._stashUI?.opened || global.AdManager?.busy || this.abilityPending.has(type)) return;
       if ((this.me?.cooldowns?.[type] || 0) > 0) return;
       this.abilityPending.add(type);
       const roomId = this.C.room?.roomId, playerId = this.C.myId, deathId = this.me?.deathId;
@@ -200,7 +206,7 @@
     }
     loadout() {
       if (this.C.connected && this.C.joined && !this.C.dead) this.C.socket.emit('setCosmetics', {
-          ...this.economy.state.equipped, titles: this.economy.state.titles, roomId: this.C.room?.roomId });
+          ...this.economy.state.equipped, roomId: this.C.room?.roomId, deathId: this.me?.deathId });
     }
     applyBoost() {
       if (!this.economy.state.pendingBoost) return;
@@ -213,12 +219,34 @@
       this.matchClosed = false; this.coinBaseline = 0; this.lastPointOffer = 0; this.loadout(); this.applyBoost();
       this.revenge = me.revengeTarget ? { id: me.revengeTarget, until: performance.now() + 3000 } : null;
       this.revengeMarker?.destroy(); this.revengeMarker = null;
+      this.playId=`${this.C.room?.roomId}:${me.id}:${me.deathId}`;
+      if(this.garage) this.economy.recordPlay(this.playId,this.playValues(me),true);
+    }
+    playValues(me) {return {kills:Math.max(0,Math.floor(me.sessionKills || 0)),seconds:Math.max(0,Math.floor((me.deathState?.survivedMs ?? me.survivedMs ?? 0)/1000)),score:Math.max(0,Math.floor(me.deathState?.score ?? me.score ?? 0)),shipClass:me.shipClass};}
+    recordPlay(me) {
+      if(!this.garage || !this.playId || !me) return 0;
+      const earned=this.economy.recordPlay(this.playId,this.playValues(me)); this.currency();return earned;
+    }
+    syncClock() {
+      const socket=this.C.socket;
+      if(!socket || !this.garage || this.clockPending || this.destroyed) return;
+      if(this.economy.remote && !this.economy.accountReady) {
+        this.clockPending=true;
+        this.economy.openAccount().then(result=>{this.clockPending=false;if(result && !this.destroyed)this.garage.clockReady();});
+        return;
+      }
+      this.clockPending=true;
+      socket.timeout(8000).emit('getServerTime',{},(error,result)=>{
+        this.clockPending=false;
+        if(error || !result?.ok || !this.C.connected || this.garage.destroyed) return;
+        if(this.economy.setServerTime(result.utc)) this.garage.clockReady();
+      });
     }
     settle(me = this.me) {
       if (!this.matchId || this.matchClosed || !me) return 0;
       this.matchClosed = true;
       const score = me.deathState?.score ?? me.score ?? this.C._score;
-      const earned = this.economy.settle(this.matchId, Math.max(0, score - (this.coinBaseline || 0)));
+      const earned = this.garage ? this.recordPlay(me) : this.economy.settle(this.matchId, Math.max(0, score - (this.coinBaseline || 0)));
       this.currency(); return earned;
     }
     died(me) {
@@ -249,9 +277,11 @@
 
     sync(me) {
       this.me = me;
+      const now=performance.now();
+      if(now-(this.creditAt || 0)>=1000) {this.creditAt=now;this.recordPlay(me);}
       this.scene._retention?.sync(me);
       I.render(this.pointsButton, M('attributes.button', { points: me.attributePoints || 0 }));
-      if (me.hp > 0 && !this.matchClosed && me.level > this.lastPointOffer && (me.attributePoints || 0) > 0 &&
+      if (me.hp > 0 && !me.evolutionPending && !this.matchClosed && me.level > this.lastPointOffer && (me.attributePoints || 0) > 0 &&
           performance.now() >= (this.offerAfter || 0) &&
           !this.C.menuOpen && !this.C.mutationsOpen && !this.blocking && !global.AdManager?.busy) {
         this.lastPointOffer = me.level; this.attributes();
@@ -300,6 +330,8 @@
     }
     setMuted(muted) { this.muted = muted; if (muted) this.audio?.suspend().catch(() => {}); }
     update(now) {
+      this.garage?.update(now);
+      if(this.C.connected && now>=(this.clockAt || 0)) {this.clockAt=now+60000;this.syncClock();}
       if (this.revenge && now < this.revenge.until) {
         const rival = this.C.renderState.get(this.revenge.id);
         if (rival) {
@@ -324,6 +356,7 @@
       }
       if (now - this.lastUI < 100) return; this.lastUI = now;
       for (const [type, button] of Object.entries(this.abilityButtons)) {
+        if (type === 'cloak') button.hidden = this.me?.shipClass !== 'stealth';
         const remaining = this.me?.cooldowns?.[type] || 0;
         button.disabled = !this.C.joined || this.C.dead || remaining > 0 || this.abilityPending.has(type);
         I.render(button, remaining > 0 ? M('ability.cooldown', { label: M(button.dataset.labelKey), seconds: Math.ceil(remaining / 1000) }) : M(button.dataset.labelKey));
@@ -331,6 +364,8 @@
     }
     destroy() {
       this.settle();
+      this.destroyed=true;this.economy.destroy();
+      this.garage?.destroy(); global.FleetGarageLoadout=null;
       for (const [key, handler] of Object.entries(this.keys)) this.scene.input.keyboard.off('keydown-' + key, handler);
       this.scene.input.off('pointerdown', this.pointerHandler);
       for (const [event, handler] of Object.entries(this.handlers)) this.C.socket.off(event, handler);

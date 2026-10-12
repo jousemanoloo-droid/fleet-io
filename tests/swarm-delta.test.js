@@ -49,16 +49,17 @@ test('swept blitz hits closest enemy once for 75, returns and pools dead-life ob
   assert.equal(b.hp, 25); assert.equal(a.tacticalDrones[0].state, 'RETURNING');
   assert.equal(room.impacts.length, 1);
   for (let i = 0; i < 200; i++) swarm.update(1 / 30, 1066 + i * 1000 / 30);
-  assert.equal(b.hp, 25); assert.ok(a.tacticalDrones.every(d => d.state === 'ORBIT'));
+  assert.equal(b.hp, 0); assert.ok(a.tacticalDrones.every(d => d.state === 'ORBIT'));
   assert.ok(events.some(e => e.event === 'DRONE_STATE_SYNC' && e.data.launched));
   const drone = a.tacticalDrones[0]; a.die(); assert.ok(swarm.pool.includes(drone));
   swarm.destroy(); assert.equal(swarm.pool.length, 0); assert.equal(swarm.cells.size, 0);
 });
-test('attack expires after three seconds even without targets and earned escorts also launch', () => {
+test('defensive sweep expires after six seconds and earned escorts also participate', () => {
   const { swarm, a, b } = fixture(); b.y = 3000; a.addDrone('earned');
   swarm.update(1 / 30, 1000); swarm.trigger(a, 1000);
-  for (let i = 0; i < 91; i++) swarm.update(1 / 30, 1000 + i * 1000 / 30);
-  assert.ok([...a.tacticalDrones, ...a.drones].every(d => d.state !== 'ATTACK'));
+  assert.ok([...a.tacticalDrones, ...a.drones].every(d=>d.state==='DEFENSIVE_SWEEP'));
+  for (let i = 0; i < 181; i++) swarm.update(1 / 30, 1000 + i * 1000 / 30);
+  assert.ok([...a.tacticalDrones, ...a.drones].every(d => d.state !== 'ATTACK_SWARM' && d.state!=='DEFENSIVE_SWEEP'));
 });
 const snapshot = (t, players = [], scraps = []) => ({ v: 2, roomId: 'room', t, ts: t * 33,
   p: players.map(Network.packPlayer), s: scraps, b: [], o: [], i: [], w: {}, keyframe: t });

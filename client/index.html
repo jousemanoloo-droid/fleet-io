@@ -6,11 +6,12 @@
   <meta name="description" data-i18n-content="page.description" content="Pilot your mothership, collect scrap and build your drone fleet in this multiplayer .io game." />
   <title data-i18n="page.title">FLEET.IO · Command Your Space Fleet</title>
 
-  <script src="js/translations.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/i18n.js?v=sdk-lifecycle-20261011b"></script>
+  <script src="js/translations.js?v=precision-20261012"></script>
+  <script src="js/i18n.js?v=precision-20261012"></script>
   <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
-  <script src="monetization.js?v=sdk-lifecycle-20261011b"></script>
-  <link rel="stylesheet" href="features.css?v=sdk-lifecycle-20261011b">
+  <link rel="stylesheet" href="features.css?v=precision-20261012">
+  <link rel="stylesheet" href="css/main.css?v=precision-20261012">
+  <link rel="stylesheet" href="css/leaderboard.css?v=precision-20261012">
   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js"></script>
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 
@@ -797,7 +798,7 @@
       </div>
       <div class="hud-row">
         <span class="hud-label" data-i18n="hud.drones">Escort drones</span>
-        <span class="hud-value drones" id="hud-drones">0 / 12</span>
+        <span class="hud-value drones" id="hud-drones"><span id="escort-drones-count">0</span></span>
       </div>
     </div>
 
@@ -844,12 +845,13 @@
       <button class="btn" id="join-btn" data-i18n="menu.play">▶ QUICK PLAY (PUBLIC)</button>
       <button class="btn death-secondary" id="create-room-btn" data-i18n="menu.private">◇ CREATE PRIVATE ROOM</button>
       <div class="field room-entry">
-        <label for="room-code-input" data-i18n="menu.code">Private code · 6 characters</label>
-        <input id="room-code-input" type="text" maxlength="6" placeholder="ABC234"
+        <label for="room-code-input" data-i18n="menu.code">Private room code</label>
+        <input id="room-code-input" type="text" maxlength="12" placeholder="FLEET-ABC234"
           autocomplete="off" spellcheck="false" />
         <button class="btn death-secondary" id="join-room-btn" data-i18n="menu.join">↗ JOIN ROOM</button>
       </div>
       <button class="btn death-secondary" id="singleplayer-btn" data-i18n="menu.solo">⚔ SINGLE PLAYER (VS BOTS)</button>
+      <div id="menu-quick-access" class="quick-access-panel"></div>
       <button class="btn death-secondary" id="resume-btn" hidden data-i18n="menu.resume">RETURN TO GAME</button>
       <div class="status" id="status" data-i18n="menu.prompt">Press a button to join</div>
 
@@ -889,24 +891,43 @@
       <div id="death-status" class="death-status" role="status" aria-live="polite"></div>
     </div>
   </div>
-  <script src="config.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/movement.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/progression.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/player.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/network.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/visuals.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/renderer.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/economy.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/features.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/retention.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/competitive.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/hazards.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/cyber.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/engagement.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/ballistics.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/ui-scene.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/projectiles.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="js/game-scene.js?v=sdk-lifecycle-20261011b"></script>
-  <script src="game.js?v=sdk-lifecycle-20261011b"></script>
+  <!-- SDK adapter initializes after body exists; the official SDK stays in head. -->
+  <script src="monetization.js?v=precision-20261012"></script>
+  <script src="config.js?v=precision-20261012"></script>
+  <script src="js/movement.js?v=precision-20261012"></script>
+  <script src="js/progression.js?v=precision-20261012"></script>
+  <script src="js/ship-classes.js?v=precision-20261012"></script>
+  <script src="js/class-ui.js?v=precision-20261012"></script>
+  <script src="js/player.js?v=precision-20261012"></script>
+  <script src="js/resource-types.js?v=precision-20261012"></script>
+  <script src="js/crafting-recipes.js?v=precision-20261012"></script>
+  <script src="js/ship-cargo-limits.js?v=precision-20261012"></script>
+  <script src="js/network.js?v=precision-20261012"></script>
+  <script src="js/visuals.js?v=precision-20261012"></script>
+  <script src="js/renderer.js?v=precision-20261012"></script>
+  <script src="js/daily-quests.js?v=precision-20261012"></script>
+  <script src="js/extraction-rules.js?v=precision-20261012"></script>
+  <script src="js/economy.js?v=precision-20261012"></script>
+  <script src="js/garage-ui.js?v=precision-20261012"></script>
+  <script src="js/features.js?v=precision-20261012"></script>
+  <script src="js/retention.js?v=precision-20261012"></script>
+  <script src="js/powerup-ui.js?v=precision-20261012"></script>
+  <script src="js/competitive.js?v=precision-20261012"></script>
+  <script src="js/hazards.js?v=precision-20261012"></script>
+  <script src="js/cyber.js?v=precision-20261012"></script>
+  <script src="js/engagement.js?v=precision-20261012"></script>
+  <script src="js/ballistics.js?v=precision-20261012"></script>
+  <script src="js/ui-scene.js?v=precision-20261012"></script>
+  <script src="js/projectiles.js?v=precision-20261012"></script>
+  <script src="js/leaderboard-ui.js?v=precision-20261012"></script>
+  <script src="js/clan-ui.js?v=precision-20261012"></script>
+  <script src="js/cargo-hud.js?v=precision-20261012"></script>
+  <script src="js/stash-ui.js?v=precision-20261012"></script>
+  <script src="js/extraction-hud.js?v=precision-20261012"></script>
+  <script src="js/crafting-ui.js?v=precision-20261012"></script>
+  <script src="js/main-menu.js?v=precision-20261012"></script>
+  <script src="js/hud-ui.js?v=precision-20261012"></script>
+  <script src="js/game-scene.js?v=precision-20261012"></script>
+  <script src="game.js?v=precision-20261012"></script>
 </body>
 </html>

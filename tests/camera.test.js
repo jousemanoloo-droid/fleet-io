@@ -13,7 +13,7 @@ function client() {
     Phaser: { Scene: class {} }, performance: { now: () => 1000 }, window: { FleetI18n: i18n() },
     document: { readyState: 'loading', addEventListener() {} },
   };
-  for (const file of ['movement', 'progression', 'player', 'network']) {
+  for (const file of ['movement', 'progression', 'ship-classes', 'player', 'network']) {
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../client/js/' + file + '.js'), 'utf8'), context);
   }
   vm.runInNewContext(source, context);
@@ -54,7 +54,7 @@ test('camera follows the interpolated local container with positive lerp and fix
       setVisible(value) { this.visible = value; }, destroy() {},
     }),
     graphics,
-    image: () => ({ setScale() { return this; }, setVisible() { return this; }, setTexture() { return this; }, setTint() { return this; } }),
+    image: () => ({ setScale() { return this; }, setVisible() { return this; }, setTexture() { return this; }, setTint() { return this; }, setAlpha(value) { this.alpha = value; return this; } }),
     text: () => ({ text: '', style: { color: '' }, setColor(value) { this.style.color = value; titleColorWrites++; return this; }, setOrigin() { return this; }, setText(value) { this.text = value; } }),
   };
   C.myId = 'local';
@@ -90,7 +90,7 @@ test('pointer uses current camera transform and absolute world coordinates, even
   C.socket = { emit: (name, data) => sent.push({ name, ...data }) };
   scene._onPointerMove(pointer);
   scene._handleInput(1000);
-  assert.deepEqual(sent[0], { name: 'playerMove', tx: 1300, ty: 1000 });
+  assert.deepEqual(sent[0], { name: 'playerMove', tx: 1300, ty: 1000,roomId:undefined,deathId:undefined,motionRevision:0 });
   scrollX = 1100;
   scene._handleInput(1040);
   assert.equal(sent[1].tx, 1400, 'stationary pointer must use updated camera');

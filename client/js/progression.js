@@ -1,13 +1,13 @@
-// Reglas RPG compartidas por servidor y HUD; XP residual por nivel, máximo 40.
+// Shared RPG rules: residual XP per level, maximum 60, evolution reachable at 45.
 (function (root, factory) {
   const api = factory();
   if (typeof module === 'object' && module.exports) module.exports = api;
   else root.FleetProgression = api;
 })(typeof window !== 'undefined' ? window : globalThis, function () {
   'use strict';
-  const MAX_LEVEL = 40, XP_PER_SCRAP = 10;
+  const MAX_LEVEL = 60, XP_PER_SCRAP = 10;
   const thresholds = [0];
-  const requiredXP = level => Math.floor(100 * Math.pow(Math.max(1, Math.min(40, level)), 1.4));
+  const requiredXP = level => Math.floor(100 * Math.pow(Math.max(1, Math.min(MAX_LEVEL, level)), 1.4));
   function thresholdXP(level) {
     level = Math.max(1, Math.min(MAX_LEVEL, level));
     while (thresholds.length < level) {

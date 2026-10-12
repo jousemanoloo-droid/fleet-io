@@ -71,6 +71,12 @@
         })]);
         if (sdk.environment === 'crazygames') {
           this.sdk = sdk; this.mode = 'crazygames';
+          this._settingsListener = settings => {
+            this.audioMuted = settings?.muteAudio === true;
+            this._hooks.onAudioSettings?.(this.audioMuted);
+          };
+          this._settingsListener(sdk.game.settings);
+          sdk.game.addSettingsChangeListener?.(this._settingsListener);
         } else if (local) this.mode = 'simulation';
         else throw new Error('CrazyGames ads are unavailable in this environment');
       } catch (error) {
@@ -123,6 +129,7 @@
 
     setGameHooks(hooks = {}) {
       this._hooks = hooks;
+      this._hooks.onAudioSettings?.(this.audioMuted === true);
       if (this._loadingTimedOut) this._hooks.onLoadingTimeout?.();
     }
 
@@ -213,9 +220,9 @@
     async showRewardedAd(onSuccess, onFailure) {
       let completed;
       try { completed = await this._show('showRewardedAd'); }
-      catch (error) { onFailure?.(error); return false; }
-      if (completed) onSuccess?.();
-      else onFailure?.(new Error('Anuncio cancelado o no disponible'));
+      catch (error) { await onFailure?.(error); return false; }
+      if (completed) await onSuccess?.();
+      else await onFailure?.(new Error('Anuncio cancelado o no disponible'));
       return completed;
     }
 

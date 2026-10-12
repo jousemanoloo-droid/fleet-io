@@ -8,7 +8,11 @@
       draw(g); g.generateTexture(key, width, height); g.destroy();
     };
     for (const [team, neon] of [['blue', 0x20dfff], ['red', 0xff406e]]) {
-      for (const tier of [1, 2, 3, 4]) make('ship-' + team + '-' + tier, 96, 80, g => {
+      const rules=global.FleetShipClasses;
+      const models=[1,2,3,4].map(tier=>({key:tier,tier,guns:rules?.gunOffsets[tier] || [{x:46,y:0}]}));
+      for(const [key,def]of Object.entries(rules?.CLASSES || {}))models.push({key,tier:def.texture,guns:rules.gunOffsets[key]});
+      for (const model of models) make('ship-' + team + '-' + model.key, 96, 80, g => {
+        const tier=model.tier;
         const polygon = points => points.map(([x, y]) => ({ x, y }));
         const wings = polygon([[12, 8], [48, 24], [85, 40], [48, 56], [12, 72], [23, 48], [23, 32]]);
         g.fillStyle(0x071321).fillPoints(wings, true);
@@ -38,9 +42,10 @@
           g.fillStyle(0x3b526d).fillRoundedRect(6, 17, 16, 46, 5);
           g.fillStyle(neon, 0.5).fillRect(8, 22, 5, 36);
         }
-        for (const offset of tier === 4 ? [-15, -5, 5, 15] : tier >= 2 ? [-5, 5] : [0]) {
-          g.fillStyle(0x9eafc3).fillRect(70, 38 + offset, 24, tier >= 3 ? 5 : 3);
-          g.fillStyle(neon).fillRect(89, 38 + offset, 5, tier >= 3 ? 5 : 3);
+        for (const gun of model.guns) {
+          const thickness=tier>=3?5:3,end=48+gun.x,y=40+gun.y-thickness/2;
+          g.fillStyle(0x9eafc3).fillRect(end-24,y,24,thickness);
+          g.fillStyle(neon).fillRect(end-5,y,5,thickness);
         }
       });
     }

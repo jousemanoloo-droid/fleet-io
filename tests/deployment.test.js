@@ -33,7 +33,7 @@ test('production server respects PORT, serves client and restricts remote handsh
   assert.deepEqual(await health.json(), { status: 'ok' });
   assert.equal(health.headers.get('x-powered-by'), null);
   const html = await (await fetch(base)).text();
-  assert.ok(html.includes('<script src="config.js"></script>'));
+  assert.match(html,/<script src="config\.js(?:\?[^"]*)?"><\/script>/);
   const config = await fetch(`${base}/config.js`);
   assert.equal(config.headers.get('cache-control'), 'no-store');
   assert.ok((await config.text()).includes('backendUrl'));

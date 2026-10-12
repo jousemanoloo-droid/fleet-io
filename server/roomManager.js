@@ -1,6 +1,8 @@
 'use strict';
 const { randomUUID, randomInt } = require('node:crypto');
 const { GameRoom } = require('./gameRoom');
+const {Clans}=require('./clans');
+const {Leaderboard}=require('./leaderboard');
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 class RoomManager {
@@ -12,6 +14,7 @@ class RoomManager {
     this.maxRooms = maxRooms;
     this.publicCapacity = publicCapacity;
     this.privateCapacity = privateCapacity;
+    this.clans=new Clans();this.leaderboard=new Leaderboard(io,this,this.clans);
     this.cleanupTimer = setInterval(() => this.sweep(), 5000);
     this.cleanupTimer.unref();
   }
@@ -34,7 +37,7 @@ class RoomManager {
 
   findRoom(code, playerId) {
     if (typeof code !== 'string') throw new Error('Código de sala inválido.');
-    const normalized = code.trim().toUpperCase();
+    const normalized = code.trim().toUpperCase().replace(/^FLEET-/,'');
     if (!normalized || normalized === 'PUBLIC') {
       let best = null;
       for (const room of this.rooms.values()) {
@@ -58,7 +61,9 @@ class RoomManager {
     // Validar y reservar capacidad ANTES de retirar al jugador de su sala anterior.
     if (room.destroyed || room.full) throw new Error('La sala está llena.');
     const player = room.addHuman(socket.id, name);
+    player.clanTag=this.clans.tag(socket.id);
     if (old) {
+      this.leaderboard.observe(old.players.get(socket.id));
       socket.leave(old.roomId);
       old.removeHuman(socket.id);
       if (old.type === 'singleplayer') this.delete(old.roomId);
@@ -73,6 +78,7 @@ class RoomManager {
     const room = this.current(socket.id);
     this.memberships.delete(socket.id);
     if (!room) return;
+    this.leaderboard.observe(room.players.get(socket.id));
     socket.leave(room.roomId);
     room.removeHuman(socket.id);
     if (room.type === 'singleplayer') this.delete(room.roomId);
@@ -97,6 +103,7 @@ class RoomManager {
 
   destroy() {
     clearInterval(this.cleanupTimer);
+    this.leaderboard.destroy();this.clans.destroy();
     for (const id of this.rooms.keys()) this.delete(id);
   }
 }

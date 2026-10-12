@@ -9,6 +9,7 @@
   const BASE_SPEED = 7.5; // 225 px/s a 30 Hz, compartido con el servidor.
   const BASE_ACCELERATION = 0.75;
   function step(p, target, world = { width: 4000, height: 4000 }, obstacles = []) {
+    if (p.evolutionPending) { p.vx = p.vy = 0; return; }
     const dt = 1 / 30;
     // Retirar el impulso aplicado en el paso previo antes de limitar el motor.
     p.vx -= p.kickAppliedX || 0; p.vy -= p.kickAppliedY || 0;
@@ -17,7 +18,8 @@
       if (p.comboTimer <= 1e-7) { p.comboCount--; p.comboTimer = p.comboCount ? 2 : 0; }
     }
     p.fireRateMultiplier = 1 - (p.comboCount || 0) * .05;
-    const synergy = p.moveSpeedMultiplier = (1 + (p.comboCount || 0) * 0.03) * ((p.overdriveRemaining || 0) > 0 ? 1.35 : 1);
+    const synergy = p.moveSpeedMultiplier = (1 + (p.comboCount || 0) * 0.03) * ((p.overdriveRemaining || 0) > 0 ? 1.35 : 1) * ((p.powerOverclockRemaining || 0)>0?1.5:1);
+    p.powerOverclockRemaining=Math.max(0,(p.powerOverclockRemaining || 0)-STEP_MS);
     const dx = target.tx - p.x, dy = target.ty - p.y;
     const distance = Math.hypot(dx, dy);
     if (distance > 2) {

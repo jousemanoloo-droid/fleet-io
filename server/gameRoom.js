@@ -2,6 +2,11 @@
 const { Player, Scrap, WORLD } = require('./entities');
 const { Bot } = require('./bot');
 const { GameLoop } = require('./gameLoop');
+const {Powerups}=require('./powerups');
+const {EnvironmentEvents}=require('./environmentEvents');
+const {ExtractionInventory}=require('./extractionInventory');
+const {ExtractionGates}=require('./extractionGates');
+const {PlayerExtraction}=require('./playerExtraction');
 
 class GameRoom {
   constructor({ roomId, type, code = null, io, maxPlayers, botCount = 7 }) {
@@ -19,6 +24,9 @@ class GameRoom {
     this.io = io;
     this.emptySince = Date.now();
     this.destroyed = false;
+    this.powerups=new Powerups(this);this.environment=new EnvironmentEvents(this);
+    this.extraction=new ExtractionInventory(this);
+    this.extractionGates=new ExtractionGates(this);this.playerExtraction=new PlayerExtraction(this);
     this.loop = new GameLoop(this, io);
     for (let i = 0; i < 12; i++) {
       const id = `rock_${i}`;
@@ -99,10 +107,14 @@ class GameRoom {
     this.competitive.remove(id);
     this.hazards.remove(id);
     const leaving = this.players.get(id);
+    this.playerExtraction.remove(leaving);
+    this.extraction.remove(leaving,'abandon');
     this.engagement.remove(leaving);
     if (leaving) this.swarm.release(leaving);
     this.players.delete(id);
-    for (const [key, shot] of this.projectiles) if (shot.ownerId === id) this.projectiles.delete(key);
+    this.loop.clientFrames.delete(id);
+    this.events.bossManager?.boss?.damageMap.delete(id);
+    for (const [key, shot] of this.projectiles) if (shot.ownerId === id || shot.sourceId === id) this.projectiles.delete(key);
     if (this.humanCount === 0) {
       this.emptySince = Date.now();
       this.loop.stop(); // No gastar ticks en salas sin observadores.
@@ -112,7 +124,7 @@ class GameRoom {
   }
 
   info() {
-    return { roomId: this.roomId, type: this.type, code: this.code,
+    return { roomId: this.roomId, type: this.type, code: this.code?'FLEET-'+this.code:null,
       humans: this.humanCount, bots: this.botCount, capacity: this.maxPlayers };
   }
   broadcastInfo() { this.io.to(this.roomId).emit('roomInfo', this.info()); }
@@ -121,11 +133,15 @@ class GameRoom {
     if (this.destroyed) return;
     this.destroyed = true;
     this.loop.stop();
+    this.combatGrid?.clear();
+    this.playerExtraction.destroy();this.extractionGates.destroy();
+    this.extraction.destroy();
     this.engagement.destroy();
     this.events.destroy();
     this.competitive.destroy();
     this.hazards.destroy();
     this.swarm.destroy();
+    this.powerups.destroy();this.environment.destroy();
     this.players.clear(); this.scraps.clear();
     this.obstacles.clear(); this.projectiles.clear();
   }

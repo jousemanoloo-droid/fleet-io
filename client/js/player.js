@@ -30,6 +30,8 @@
       this.state.vx = replay.vx; this.state.vy = replay.vy;
       this.state.maxSpeed = server.maxSpeed;
       this.state.levelUpPending = server.levelUpPending;
+      this.state.evolutionPending = server.evolutionPending;
+      this.state.powerOverclockRemaining = replay.powerOverclockRemaining;
       this.state.dashing = !!server.dashing;
       this.state.slowed = !!server.slowed;
       this.state.boosted = !!server.boosted;

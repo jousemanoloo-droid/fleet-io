@@ -43,3 +43,63 @@
 @keyframes frenzy-pulse { from { opacity:.6; text-shadow:0 0 5px #ff245c; } to { opacity:1; text-shadow:0 0 20px #ff245c; } }
 @media(max-width:600px) { .contract-card { top:265px; left:8px; width:175px; padding:8px; font-size:10px; } .contract-timer { width:40px; height:40px; } }
 @media(prefers-reduced-motion:reduce) { .frenzy-warning { animation:none; } }
+
+.garage-panel { width:min(760px,96vw); max-height:90vh; overflow-y:auto; }
+.garage-panel h3 { color:#00d4ff; margin:16px 0 8px; }
+.garage-panel > .feature-button { display:block; width:100%; margin-top:8px; }
+.garage-preview { display:grid; place-items:center; height:65px; margin:8px 0; border:1px solid; border-radius:8px; background:#07101e; text-shadow:0 0 12px currentColor; }
+.garage-preview img { width:80px; max-height:62px; object-fit:contain; }
+.daily-welcome { flex-shrink:0; width:min(420px,95vw); margin:14px auto; padding:14px; border:1px solid #00d4ff88; border-radius:12px; background:#091426e8; box-shadow:0 0 20px #00d4ff20; text-align:center; }
+.daily-welcome strong { display:block; color:#ffd260; margin-bottom:8px; }
+.daily-welcome .feature-button { margin:4px; }
+
+.powerup-hud { position:fixed; left:50%; bottom:110px; transform:translateX(-50%); display:flex; gap:8px; z-index:35; pointer-events:none; font:700 12px system-ui; }
+.powerup-hud[hidden] { display:none; }
+.powerup-hud span { color:#aaffef; background:#07121ddd; border:1px solid #00d4ff66; border-radius:8px; padding:8px; }
+.powerup-hud span[hidden] { display:none; }
+
+.rank-tabs { display:flex; gap:4px; margin:6px 0; }
+.rank-tabs .feature-button { padding:5px; font-size:10px; flex:1; }
+.rank-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:3px 8px; padding:6px 0; border-bottom:1px solid #00d4ff20; }
+.rank-row strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; }
+.rank-row small { grid-column:1 / -1; color:#8895b8; font-size:10px; }
+.rank-row.me { color:#00ff88; }
+
+/* Extraction Space: panel responsive y HUD ligero sin animación por frame. */
+.stash-panel { width:min(620px,94vw);max-height:85vh;overflow-y:auto; }
+.stash-grid { display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin:16px 0; }
+.stash-resource { display:grid;gap:8px;padding:16px;border:1px solid #27cfea66;border-radius:12px;background:#071725; }
+.stash-icon { font-size:32px;text-shadow:0 0 14px currentColor; }
+.stash-resource small { color:#93b7c6; }
+.stash-warning,.cargo-loss { color:#ffb67b;font-size:13px;line-height:1.5; }
+.cargo-hud { position:fixed;left:16px;bottom:115px;z-index:25;padding:8px 12px;border:1px solid #4bd8fc55;border-radius:8px;background:#05101bd9;color:#a3efff;font:600 12px system-ui;pointer-events:none; }
+@media(max-width:600px) { .cargo-hud { bottom:145px;left:8px;max-width:70vw; } }
+
+/* Cargo HUD: las animaciones son CSS, sin temporizadores ni tweens por recurso. */
+.cargo-hud { min-width:190px;color:#69ef9b; }
+.cargo-meter { height:5px;margin-top:6px;overflow:hidden;border-radius:4px;background:#0b2534; }
+.cargo-fill { height:100%;background:currentColor;transition:width 140ms linear; }
+.cargo-warning { color:#ffe269; }
+.cargo-danger,.cargo-full { color:#ff6279; }
+.cargo-full { animation:cargo-full-alert 850ms ease-in-out infinite alternate; }
+@keyframes cargo-full-alert { to { box-shadow:0 0 14px #ff627970;border-color:#ff6279; } }
+@media(prefers-reduced-motion:reduce) { .cargo-full { animation:none; } .cargo-fill { transition:none; } }
+/* Server-authoritative extraction HUD: a bounded two-gate radar and neon channel. */
+.extraction-hud{position:fixed;left:50%;bottom:9%;transform:translateX(-50%);z-index:42;width:min(470px,88vw);padding:12px 18px;background:rgba(5,12,28,.9);border:1px solid #40ffda;border-radius:12px;color:#b9fff2;text-align:center;pointer-events:none;font:12px monospace;box-shadow:0 0 22px #40ffda25}
+.extraction-hud p{margin:4px 0}.extraction-hud progress{width:100%;height:10px;accent-color:#40ffda}
+.extraction-hud [hidden],.extraction-hud[hidden]{display:none}
+.extraction-cancelled{border-color:#ff4568;color:#ff9aaa;animation:extraction-flash .3s ease-in-out 5 alternate}
+.extraction-victory .feature-panel{border-color:#40ffda;box-shadow:0 0 80px #40ffda35;text-align:center;animation:extraction-arrive .4s ease-out}
+.extraction-victory h2{color:#40ffda}.extraction-victory p{line-height:1.8}
+@keyframes extraction-flash{to{box-shadow:0 0 24px #ff456880}}
+@keyframes extraction-arrive{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:scale(1)}}
+@media(prefers-reduced-motion:reduce){.extraction-cancelled,.extraction-victory .feature-panel{animation:none}}
+/* Crafting stays outside the render loop and shares the portal-safe modal system. */
+.crafting-panel{max-width:1000px!important;max-height:90vh;overflow:auto}.crafting-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.crafting-card{padding:18px;border:1px solid #a67cff70;background:linear-gradient(150deg,#10152a,#080e1c);border-radius:14px;display:flex;flex-direction:column;gap:8px;transition:transform .18s,box-shadow .18s}
+.crafting-card:hover{transform:translateY(-3px);box-shadow:0 0 24px #a67cff25}.crafting-card.legendary{border-color:#ffce5480}.crafting-card h3,.crafting-card p{margin:3px 0}.crafting-card p{font-size:12px;line-height:1.6}.crafting-card ul{padding-left:16px;line-height:1.7;font-size:12px}.crafting-card button{margin-top:auto}
+.crafting-icon{font-size:30px;color:#c896ff;text-shadow:0 0 15px currentColor}.legendary .crafting-icon{color:#ffce54}.crafting-owned{box-shadow:inset 0 0 18px #40ffda18}
+.craft-enough{color:#77ffad}.craft-missing{color:#ff829d}.crafting-status{color:#40ffda;min-height:1.5em}
+.crafting-success{animation:craft-confirm .65s ease-out}@keyframes craft-confirm{from{box-shadow:0 0 70px #40ffda80}to{box-shadow:0 0 20px #40ffda15}}
+@media(max-width:750px){.crafting-grid{grid-template-columns:1fr}.crafting-card ul{margin:4px 0}}
+@media(prefers-reduced-motion:reduce){.crafting-success{animation:none}.crafting-card{transition:none}.crafting-card:hover{transform:none}}

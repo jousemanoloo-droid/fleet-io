@@ -10,6 +10,7 @@ const WORLD = {
 const Movement = require('../client/js/movement');
 const Progression = require('../client/js/progression');
 const RPG = require('./rpg');
+const Classes = require('./shipClasses');
 
 class Entity {
   constructor(x, y, radius) {
@@ -140,6 +141,7 @@ class Player extends Entity {
     this.alive = true;
     this.deathId = 0;
     this.deathState = null;
+    this.inRunInventory = {};this.inventoryRevision=0;
     this.spawnProtectionUntil = 0;
     this.rotation = 0;
     this.inputSeq = 0;
@@ -163,6 +165,7 @@ class Player extends Entity {
   update() {
     if (this.hp <= 0) this.die();
     if (!this.alive) return;
+    Classes.tick(this);
 
     const input = this.inputQueue.shift();
     if (input) { this.setTarget(input.tx, input.ty); this.inputSeq = input.seq; }
@@ -183,8 +186,11 @@ class Player extends Entity {
 
   // Captura autoritativa e inmutable de la economía antes de limpiar la flota.
   die() {
+    this.playerExtraction?.cancel(this,'state');
     if (this.deathState) return false;
     this.deathId++;
+    this.extractionInventory?.wipe(this,'death');
+    this.inRunInventory={}; // También seguro para actores sin wallet o fixtures.
     this.deathState = Object.freeze({
       score: this.score, scrap: this.scrapCollected, drones: this.drones.length,
       totalXp: this.totalXp, survivedMs: Date.now() - this.matchStartedAt,
@@ -207,6 +213,8 @@ class Player extends Entity {
     this.levelUpPending = false;
     this.invulnerable = false;
     this.upgradeOptions = [];
+    this.evolutionPending = 0; this.evolutionExpiresAt = this.cloakUntil = 0; this.carrierTarget = null;
+    this.powerShieldUntil=this.powerOverclockUntil=this.powerTripleUntil=0;this.radiation=false;
     return true;
   }
 
@@ -221,14 +229,18 @@ class Player extends Entity {
     this.nextDroneIndex = 0;
     if (!rewarded) {
       this.maxHp = 100;
+      this._craftedShieldBase=0;
       this.maxSpeed = Movement.BASE_SPEED;
       this.collectRadius = this.radius + 12;
       this.mutations = [];
-      this.attributes = { speed: 0, shield: 0, damage: 0, fireRate: 0 };
+      this.attributes = { speed: 0, shield: 0, damage: 0, fireRate: 0, regen: 0, vision: 0 };
       this.attributePoints = 0;
     }
     RPG.restoreXP(this, (saved.totalXp || saved.scrap * 10) * fraction);
+    Classes.restore(this, rewarded);
+    require('./blackMarket').applyPassives(this,this.permanentUpgrades);
     this.killedBy = null;
+    this.sessionKills = 0;
     this.matchStartedAt = Date.now();
     this.abilityReady = { dash: 0, shield: 0, emp: 0, parry: 0 };
     // Buscar separación respecto a naves y escoltas. En mapas saturados,
@@ -258,6 +270,8 @@ class Player extends Entity {
     this.vx = this.vy = 0;
     this.hp = this.maxHp;
     this.alive = true;
+    this.motionRevision = (this.motionRevision || 0) + 1;
+    this.inRunInventory={};this.extractionInventory?.reset(this);
     this.deathState = null;
     this.levelUpPending = false;
     this.spawnProtectionUntil = Date.now() + 3000;
@@ -271,11 +285,12 @@ class Player extends Entity {
   }
 
   takeDamage(amount, attacker = null, reflected = false) {
-    if (!this.alive || this.invulnerable || Date.now() < this.revengeUntil || Date.now() < this.revengeShieldUntil || Date.now() < this.spawnProtectionUntil ||
+    if (!this.alive || this.invulnerable || this.evolutionPending || Date.now() < this.powerShieldUntil || Date.now() < this.revengeUntil || Date.now() < this.revengeShieldUntil || Date.now() < this.spawnProtectionUntil ||
         Date.now() < this.dashUntil || Date.now() < this.shieldUntil ||
         !Number.isFinite(amount) || amount <= 0) return false;
     this.hp = Math.max(0, this.hp - amount);
     this.lastDamageAt = Date.now();
+    this.playerExtraction?.damage(this);
     this.engagement?.damage(this, this.lastDamageAt);
     if (this.hp > 0 && this.hp / this.maxHp < 0.1) {
       this.escapePending = true; this.escapeThreat = attacker?.id || null;
@@ -336,7 +351,7 @@ class Player extends Entity {
         result.desc = `Radio de absorción +50% (${this.collectRadius.toFixed(1)})`;
         break;
       case 'nano_armor':
-        this.maxHp += 25;
+        this.maxHp += 25 * (Classes.definition(this.shipClass)?.hp || 1);
         this.hp = Math.min(this.maxHp, this.hp + this.maxHp * 0.5);
         result.name = 'Blindaje Nanotecnológico';
         result.desc = `+25 HP máx. y curación 50% (${Math.round(this.hp)}/${this.maxHp})`;
@@ -384,6 +399,7 @@ class Player extends Entity {
       radius: this.radius,
       hp: Math.ceil(Math.max(0, this.hp)),
       alive: this.alive,
+      activeDroneCount:require('./droneCounts').activeDroneCount(this),droneCountRevision:this.droneCountRevision || 0,
       deathId: this.deathId,
       deathState: this.deathState,
       maxHp: this.maxHp,

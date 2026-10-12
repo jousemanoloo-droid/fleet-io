@@ -102,7 +102,9 @@
         for (const rock of this.scene._obstacles) if (camera.worldView.contains(rock.x, rock.y)) count += rock.gold ? 2 : 0.5;
         this.targetZoom = 1.2 - 0.45 * Math.min(1, Math.max(0, count - 1) / 15);
       }
-      if (!frozen) camera.setZoom(camera.zoom + (this.targetZoom - camera.zoom) * (1 - Math.exp(-Math.min(delta, 100) / 300)));
+      const vision = this.scene._features?.me?.attributes?.vision || 0;
+      const radiation=this.scene._features?.me?.radiation;
+      if (!frozen) camera.setZoom(camera.zoom + (this.targetZoom / (1+vision*.05) * (radiation?1.35:1) - camera.zoom) * (1 - Math.exp(-Math.min(delta, 100) / 300)));
       this.scene.game?.events.emit('camera_zoom_updated', camera.zoom);
       this.grid.setVisible(!C.dead && !C.menuOpen).setPosition(camera.width / 2, camera.height / 2)
         .setSize(camera.width / camera.zoom, camera.height / camera.zoom);
@@ -112,7 +114,7 @@
         this.emitAt = now + 40;
         let budget = 32;
         for (const p of C.renderState.values()) for (const d of p.drones) {
-          if (d.state === 'ATTACK' && budget > 0 && this.scene._effectVisible(d.x, d.y)) {
+          if (['ATTACK','ATTACK_SWARM'].includes(d.state) && budget > 0 && this.scene._effectVisible(d.x, d.y)) {
             this.trail.emitParticleAt(d.x, d.y, 2); budget--;
           }
         }

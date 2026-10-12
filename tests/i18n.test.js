@@ -27,7 +27,7 @@ test('both dictionaries cover the same keys and parameters; all static UI and mu
   const window = {};
   require('node:vm').runInNewContext(fs.readFileSync('client/js/economy.js', 'utf8'), { window });
   const { CATALOG } = window.FleetEconomy;
-  for (const [type, items] of Object.entries(CATALOG)) for (const item of items) assert.ok(dictionaries.en[`cosmetic.${type}.${item.id}`]);
+  for (const items of Object.values(CATALOG)) for (const item of items) assert.ok(dictionaries.en[item.nameKey]);
   for (const type of ['plasma_thrusters', 'quantum_magnet', 'nano_armor', 'heavy_swarm']) {
     assert.ok(dictionaries.en[`mutation.${type}.name`]); assert.ok(dictionaries.en[`mutation.${type}.desc`]);
   }

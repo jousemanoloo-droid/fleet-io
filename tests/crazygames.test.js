@@ -20,6 +20,26 @@ function fixture(environment = 'crazygames', init = async () => {}, hostname = '
   return { manager: window.AdManager, SDK, calls, requests };
 }
 
+test('portal muteAudio is delivered initially and on settings changes',async()=>{
+  let listener;
+  const f=fixture('crazygames',async()=>{});
+  f.SDK.game.settings={muteAudio:true};
+  f.SDK.game.addSettingsChangeListener=fn=>listener=fn;
+  await f.manager.ready;const muted=[];
+  f.manager.setGameHooks({onAudioSettings:value=>muted.push(value)});
+  assert.deepEqual(muted,[true]);listener({muteAudio:false});assert.deepEqual(muted,[true,false]);
+  f.manager.loadingStop();
+});
+
+test('reward flow waits for asynchronous server settlement after SDK completion',async()=>{
+  const f=fixture();await f.manager.ready;f.manager.loadingStop();
+  let release,done=false;
+  const pending=f.manager.showRewardedAd(()=>new Promise(resolve=>{release=()=>{done=true;resolve();};}));
+  await new Promise(resolve=>setImmediate(resolve));f.requests[0].callbacks.adFinished();
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(done,false);
+  release();assert.equal(await pending,true);assert.equal(done,true);
+});
+
 test('SDK initialization gates telemetry and repeated gameplay transitions are idempotent', async () => {
   let initialized;
   const { manager, calls } = fixture('crazygames', () => new Promise(resolve => { initialized = resolve; }));

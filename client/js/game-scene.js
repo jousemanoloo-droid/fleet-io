@@ -144,19 +144,34 @@
 
       C.socket = this._setupSocket();
 
-      setupUI();
+      const disposeUI = setupUI();
+      if (window.FleetClassUI) this._classUI = new window.FleetClassUI(this, C);
       this._setupDeathUI();
       if (window.FleetFeatures) this._features = new window.FleetFeatures.Features(this, C, syncGameplayTracking);
+      if(window.FleetStashUI && this._features)this._stashUI=new window.FleetStashUI(this,C,syncGameplayTracking);
+      if(window.FleetExtractionHUD)this._extractionHUD=new window.FleetExtractionHUD(this,C);
+      if(window.FleetCraftingUI && this._features)this._craftingUI=new window.FleetCraftingUI(this,C,syncGameplayTracking);
       if (window.FleetRetention) this._retention = new window.FleetRetention.Retention(this, C);
+      if(window.FleetLeaderboardUI)this._leaderboardUI=new window.FleetLeaderboardUI(this,C);
+      if(window.FleetClanUI)this._clanUI=new window.FleetClanUI(this,C);
+      if(window.FleetPowerupUI) this._powerupUI=new window.FleetPowerupUI(this,C);
       if (window.FleetCompetitive) this._competitive = new window.FleetCompetitive.Competitive(this,C);
       if (window.FleetHazards) this._hazards = new window.FleetHazards.Hazards(this,C);
       if (window.FleetEngagement) this._engagement = new window.FleetEngagement.Engagement(this, C);
       this._cyber = new window.FleetCyber.Cyber(this, C);
+      if(window.FleetMainMenu)this._mainMenu=new window.FleetMainMenu(this,C);
       const unsubscribe = I.subscribe(() => {
         updateHUD();
         this._updateLeaderboard(C.leaderboard || []);
       });
       this.events.once('shutdown', unsubscribe);
+      // Registered last: child modules unsubscribe before the owned socket closes.
+      this.events.once('shutdown', () => {
+        disposeUI(); this._disposeSocket?.(); this._prediction=null;this._decoder.reset();
+        for (const value of Object.values(this)) if(value instanceof Map)value.clear();
+        this._stars.length=0;this._obstacles=[];
+        C.playerStates.clear();C.renderState.clear();C.scraps.clear();C._prevStates?.clear();C.leaderboardCache.clear();C.myId=null;C.room=null;
+      });
       this._menuReady=true; this._finishInitialLoading();
     }
 
@@ -173,11 +188,19 @@
     _setupAdHooks() {
       let previousMute = false, previousFeatureMute = false;
       let pausedScenes = [], contexts = [], media = [];
+      let alive=true;
+      const releaseAudio=()=>{for(const ctx of contexts){try{ctx.resume()?.catch?.(()=>{});}catch{}}contexts=[];media=[];};
+      const userMute=this.sound?.mute || false;
       window.AdManager?.setGameHooks({
         onLoadingTimeout: () => this._finishInitialLoading(),
+        onAudioSettings: muted => {
+          if(this.sound)this.sound.mute=userMute || muted || !!window.AdManager?.busy;
+          for(const node of new Set([this._cyber?.audio,...document.querySelectorAll('audio,video')].filter(Boolean)))node.muted=userMute || muted;
+        },
         onAdStarted: () => {
-          previousMute = this.sound?.mute || false;
+          previousMute = userMute;
           previousFeatureMute = this._features?.muted || false;
+          if(this._cyber?.audio)this._cyber.audio.muted=!!window.AdManager?.audioMuted;
           contexts = [...new Set([this.sound?.context, this._features?.audio].filter(ctx => ctx?.state === 'running'))];
           media = [...new Set([this._cyber?.audio, ...document.querySelectorAll('audio,video')]
             .filter(node => node && !node.paused && !node.ended))];
@@ -185,20 +208,26 @@
           if (this._features) this._features.muted = true;
           for (const ctx of contexts) { try { ctx.suspend()?.catch?.(() => {}); } catch {} }
           for (const node of media) node.pause();
+          const me=C.playerStates.get(C.myId);
+          if(C.connected && me?.hp>0) C.socket.emit('playerMove',{tx:me.x,ty:me.y,seq:++this._inputSeq,roomId:C.room?.roomId,deathId:me.deathId,motionRevision:me.motionRevision || 0});
           pausedScenes = ['GameScene','UIScene'].filter(key => this.scene.isActive(key));
           for (const key of pausedScenes) this.scene.pause(key);
         },
         onAdEnded: () => {
-          if (this.sound) this.sound.mute = previousMute;
+          if(!alive){releaseAudio();return;}
+          if (this.sound) this.sound.mute = previousMute || !!window.AdManager?.audioMuted;
           if (this._features) this._features.muted = previousFeatureMute;
           for (const ctx of contexts) { try { ctx.resume()?.catch?.(() => {}); } catch {} }
           for (const node of media) { try { node.play()?.catch?.(() => {}); } catch {} }
           contexts = []; media = [];
+          const me=C.playerStates.get(C.myId);
+          if(me?.hp>0){this._prediction?.reset(me);C.targetWorld={x:me.x,y:me.y};}
           for (const key of pausedScenes) this.scene.resume(key);
           pausedScenes = []; syncGameplayTracking();
         },
       });
       this.events.once('shutdown', () => {
+        alive=false;releaseAudio();
         window.AdManager?.setGameHooks({}); window.AdManager?.gameplayStop();
       });
     }
@@ -210,17 +239,26 @@
         const playerId = C.myId;
         const roomId = C.room?.roomId;
         this._setRespawnBusy(true, M('ad.playing'));
-        window.AdManager.showRewardedAd(() => {
+        const economy=this._features?.economy;
+        const runAd = ticket => window.AdManager.showRewardedAd(async() => {
+          if(economy?.remote && !(await economy.request('finishAd',{id:ticket}))?.ok){this._setRespawnBusy(false,M('ad.failure'));return;}
           // Ignorar resultados de un anuncio perteneciente a otra sesión/muerte.
           if (C.dead && C.deathId === deathId && C.myId === playerId && C.room?.roomId === roomId) {
             this._requestRespawn(true, deathId);
           }
-        }, () => {
+        }, async() => {
+          if(economy?.remote)await economy.request('cancelAd',{id:ticket});
           if (C.dead && C.deathId === deathId && C.myId === playerId && C.room?.roomId === roomId) {
             this._setRespawnBusy(false, M('ad.failure'));
             this._updateRewardAvailability();
           }
         });
+        if(economy?.remote) {
+          economy.request('startAd',{purpose:'revive',roomId,deathId}).then(result=>{
+            if(!result?.ok || !C.dead || C.deathId!==deathId || C.room?.roomId!==roomId){this._setRespawnBusy(false,M('ad.failure'));return;}
+            return runAd(result.ticket);
+          }).catch(()=>this._setRespawnBusy(false,M('ad.failure')));
+        } else runAd();
       };
       document.getElementById('restart-btn').onclick = async () => {
         if (!C.dead || C.respawnBusy || !C.connected) return;
@@ -252,6 +290,7 @@
 
     _showDeath(me) {
       window.AdManager?.gameplayStop?.();
+      this._classUI?.close();
       if (C.dead && C.deathId === me.deathId) return;
       C.dead = true;
       C.deathId = me.deathId;
@@ -291,7 +330,7 @@
     _syncLocalState(me) {
       C._score = me.score;
       C._scrap = me.scrap;
-      C._drones = me.drones.length;
+      C._drones = Number.isSafeInteger(me.activeDroneCount)?me.activeDroneCount:(me.drones || []).length+(me.tacticalDrones || []).length+(me.orbitalDrones || []).length;
       C._hp = me.hp;
       C._maxHp = me.maxHp;
       C._level = me.level;
@@ -314,6 +353,7 @@
       }
       syncGameplayTracking();
       this._features?.sync(me);
+      this._classUI?.sync(me);
     }
 
     _initJuice() {
@@ -457,18 +497,36 @@
       // Socket.IO negocia polling/WebSocket automáticamente; el origen compartido
       // funciona sin URL y el hosting estático puede definir un backend remoto.
       const socket = window.FleetNetwork.connect(window);
-      const inRoom = data => !data.roomId || data.roomId === C.room?.roomId;
+      const listeners = [], managerListeners = [];
+      let disposed=false;
+      const on = (name, fn) => { listeners.push([name, fn]); socket.on(name, fn); };
+      const onManager = (name, fn) => { managerListeners.push([name, fn]); socket.io.on(name, fn); };
+      this._disposeSocket = () => {
+        if(disposed)return;disposed=true;
+        for (const [name, fn] of listeners) socket.off?.(name, fn);
+        for (const [name, fn] of managerListeners) socket.io.off?.(name, fn);
+        socket.disconnect?.();
+        if (C.socket === socket) { C.socket = null; C.connected = C.joined = false; }
+        listeners.length = managerListeners.length = 0;
+      };
+      const inRoom = data => data && (!data.roomId || data.roomId === C.room?.roomId);
+      const currentLife = data => {
+        const previous=C.playerStates.get(data?.id || C.myId);
+        return inRoom(data) && (!previous || (data.deathId ?? previous.deathId)>=previous.deathId && (data.motionRevision ?? previous.motionRevision ?? 0)>=(previous.motionRevision || 0));
+      };
 
-      socket.on('connect', () => {
+      on('connect', () => {
         C.connected = true;
         setStatus(M('status.connected'), '');
         this._finishInitialLoading();
+        this._features?.syncClock?.();
       });
 
-      socket.on('disconnect', () => {
+      on('disconnect', () => {
         this._features?.settle();
         window.AdManager?.gameplayStop?.();
         C.connected = false;
+        this._classUI?.close();
         C.joined = false;
         C.dead = false;
         C.myId = null;
@@ -493,17 +551,18 @@
         setStatus(M('status.disconnect'), 'error');
       });
 
-      socket.on('connect_error', () => {
+      on('connect_error', () => {
         setStatus(M('status.error'), 'error');
         const loading=document.querySelector('#game-loading span');
         if (loading) I.render(loading,M('status.loadingRetry'));
       });
 
-      socket.on('welcome', (data) => {
+      on('welcome', (data) => {
         this._features?.settle();
         window.AdManager?.gameplayStop?.();
         C.joined = false;
         C.lastServerTime = 0;
+        this._classUI?.close();
         // Cambio de sala = nueva línea temporal. No interpolar entidades de
         // mundos diferentes ni conservar las opciones de mutación anteriores.
         for (const id of this._playerSprites.keys()) this._removePlayer(id);
@@ -517,7 +576,7 @@
         document.getElementById('death-overlay').classList.add('hidden');
         hideMutations();
         const leaderboard = document.getElementById('lb-rows');
-        if (leaderboard) leaderboard.replaceChildren();
+        if (leaderboard && !this._leaderboardUI) leaderboard.replaceChildren();
         C.room = data.room || null;
         updateRoomHUD(C.room);
         C.myId = data.yourId;
@@ -532,11 +591,11 @@
         this.physics?.world?.setBounds?.(0, 0, C.world.width, C.world.height);
       });
 
-      socket.on('playerJoined', (data) => {
+      on('playerJoined', (data) => {
         // inicializado con estado parcial; el siguiente gameState traerá la entidad completa
       });
 
-      socket.on('playerLeft', (data) => {
+      on('playerLeft', (data) => {
         if (!inRoom(data)) return;
         const id = data.id;
         C.playerStates.delete(id);
@@ -545,21 +604,36 @@
         this._removePlayer(id);
       });
 
-      socket.on('playerCount', (n) => {
+      on('playerCount', (n) => {
         C._playerCount = n;
         I.render(document.getElementById('hud-players'), String(n));
       });
-      socket.on('roomInfo', info => {
+      on('roomInfo', info => {
         if (info.roomId !== C.room?.roomId) return;
         C.room = info;
         updateRoomHUD(info);
       });
+      on('drones:count-update',data=>{
+        const me=C.playerStates.get(C.myId);
+        if(!currentLife(data) || data.playerId!==C.myId || data.motionRevision!==(me?.motionRevision || 0) ||
+          !Number.isSafeInteger(data.revision) || data.revision<(me?.droneCountRevision || 0) ||
+          !Number.isSafeInteger(data.activeDroneCount) || data.activeDroneCount<0 || data.activeDroneCount>64)return;
+        if(me){
+          me.activeDroneCount=data.activeDroneCount;me.droneCountRevision=data.revision;
+          if([data.drones,data.tacticalDrones,data.orbitalDrones].every(a=>Array.isArray(a) && a.length<=32)){
+            me.drones=data.drones;me.tacticalDrones=data.tacticalDrones;me.orbitalDrones=data.orbitalDrones;
+            const rendered=C.renderState.get(C.myId);if(rendered)rendered.drones=[...me.drones,...me.tacticalDrones,...me.orbitalDrones];
+            for(const sample of C._prevStates?.get(C.myId) || [])sample.drones=[...me.drones,...me.tacticalDrones,...me.orbitalDrones];
+          }
+        }
+        C._drones=data.activeDroneCount;updateHUD();
+      });
 
-      socket.on('scrapCollected', (data) => {
+      on('scrapCollected', (data) => {
         if (!inRoom(data)) return;
         C._score = data.score || C._score;
         C._scrap = data.scrapTotal || C._scrap;
-        C._drones = data.droneCount || C._drones;
+        // Drone counts come exclusively from authoritative snapshots/count events.
         if (typeof data.hp === 'number') C._hp = data.hp;
         if (typeof data.maxHp === 'number') C._maxHp = data.maxHp;
         if (typeof data.level === 'number') C._level = data.level;
@@ -571,8 +645,8 @@
       });
 
       // Servidor pide mostrar las 3 cartas de mutación
-      socket.on('showLevelUpOptions', (data) => {
-        if (!inRoom(data)) return;
+      on('showLevelUpOptions', (data) => {
+        if (!currentLife(data)) return;
         if (C.dead) return;
         C._level = data.level || C._level;
         updateHUD();
@@ -580,27 +654,26 @@
       });
 
       // Servidor confirma la mutación aplicada
-      socket.on('upgradeApplied', (data) => {
-        if (!inRoom(data)) return;
+      on('upgradeApplied', (data) => {
+        if (!currentLife(data)) return;
         if (typeof data.hp === 'number') C._hp = data.hp;
         if (typeof data.maxHp === 'number') C._maxHp = data.maxHp;
         if (typeof data.level === 'number') C._level = data.level;
-        if (typeof data.droneCount === 'number') C._drones = data.droneCount;
         if (Array.isArray(data.mutations)) C._mutations = data.mutations;
         updateHUD();
         hideMutations();
         spawnFloatText(this, C.myId, M('mutation.applied', { icon: data.icon || '✦', name: M(data.type ? 'mutation.' + data.type + '.name' : 'mutation.generic') }), 0x00ff88);
       });
 
-      socket.on('gameState', (snap) => {
+      on('gameState', (snap) => {
         try { this._onSnapshot(snap); } catch (error) {
           console.warn('Discarded invalid game snapshot');
           this._decoder.reset();
         }
       });
 
-      socket.on('playerDied', (me) => {
-        if (!inRoom(me)) return;
+      on('playerDied', (me) => {
+        if (!currentLife(me)) return;
         if (me.id !== C.myId) return;
         // Stop gameplay before visual work can fail or delay the death modal.
         window.AdManager?.gameplayStop?.();
@@ -609,7 +682,7 @@
         C.playerStates.set(me.id, me);
         this._syncLocalState(me);
       });
-      socket.on('respawned', (me) => {
+      on('respawned', (me) => {
         if (!inRoom(me)) return;
         if (me.id !== C.myId) return;
         C.playerStates.set(me.id, me);
@@ -618,8 +691,8 @@
         this._syncLocalState(me);
       });
 
-      socket.io.on('ping', () => { C._pingSentAt = performance.now(); });
-      socket.io.on('pong', () => {
+      onManager('ping', () => { C._pingSentAt = performance.now(); });
+      onManager('pong', () => {
         if (C._pingSentAt) {
           C.ping = Math.round(performance.now() - C._pingSentAt);
           I.render(document.getElementById('hud-ping'), String(C.ping));
@@ -655,6 +728,8 @@
       this._competitive?.snapshot(snap);
       this._hazards?.snapshot(snap);
       this._engagement?.snapshot(snap);
+      this._powerupUI?.snapshot(snap);
+      this._stashUI?.snapshot(snap);
       this._bullets?.snapshot(snap.b || [], players.find(p => p.id === C.myId), now);
       for (const [, x, y] of snap.i || []) {
         if (this._explosions && this._effectVisible(x, y)) this._explosions.emitParticleAt(x, y, 6);
@@ -674,6 +749,11 @@
 
       for (const p of players) {
         const previous = C.playerStates.get(p.id);
+        if(previous && p.deathId===previous.deathId && p.motionRevision===previous.motionRevision &&
+          (p.droneCountRevision || 0)<(previous.droneCountRevision || 0)){
+          p.activeDroneCount=previous.activeDroneCount;p.droneCountRevision=previous.droneCountRevision;
+          p.drones=previous.drones;p.tacticalDrones=previous.tacticalDrones;p.orbitalDrones=previous.orbitalDrones;
+        }
         if (previous && previous.hp <= 0 && p.hp > 0) respawnedPlayers.add(p.id);
         if (p.id === C.myId && previous && p.hp > 0 && p.hp < previous.hp && p.hp / p.maxHp <= 0.25) this._cyber?.impact();
         if (previous && previous.hp > 0) {
@@ -775,6 +855,7 @@
     }
 
     _updateLeaderboard(players) {
+      if(this._leaderboardUI){this._leaderboardUI.roomRanking(players);return;}
       const sorted = [...players]
         .sort((a, b) => (b.score || 0) - (a.score || 0))
         .slice(0, 10);
@@ -867,6 +948,7 @@
     }
 
     update(time, delta) {
+      this._extractionHUD?.update(performance.now());
       if (!C.joined) { this._cyber?.idle(); return; }
       const now = performance.now();
       this._features?.update(now);
@@ -887,6 +969,7 @@
       this._cyber?.update(now, delta, frozen);
       this._competitive?.update(now);
       this._hazards?.update(now);
+      this._powerupUI?.update(now,delta);
       this._engagement?.update(now);
       // Phaser actualiza el seguimiento al preparar la cámara para renderizar,
       // después de colocar el contenedor en la posición interpolada de este frame.
@@ -1050,7 +1133,7 @@
 
     _onPointerMove(pointer) {
       this._pointer = pointer;
-      if (!C.joined || C.menuOpen || C.dead || C.respawnBusy || this._features?.blocking || window.AdManager?.busy) return;
+      if (!C.joined || C.menuOpen || C.dead || C.evolutionPaused || C.respawnBusy || this._features?.blocking || this._stashUI?.opened || this._craftingUI?.opened || window.AdManager?.busy) return;
       this._inputMode = 'pointer';
       this._updatePointerTarget(pointer);
     }
@@ -1064,7 +1147,7 @@
     }
 
     _handleInput(now, delta) {
-      if (C.menuOpen || C.dead || C.respawnBusy || this._features?.blocking || window.AdManager?.busy) return;
+      if (C.menuOpen || C.dead || C.evolutionPaused || C.respawnBusy || this._features?.blocking || this._stashUI?.opened || this._craftingUI?.opened || window.AdManager?.busy) return;
       const keys = this._keys;
       const dx = keys ? Number(keys.D.isDown || keys.RIGHT.isDown) - Number(keys.A.isDown || keys.LEFT.isDown) : 0;
       const dy = keys ? Number(keys.S.isDown || keys.DOWN.isDown) - Number(keys.W.isDown || keys.UP.isDown) : 0;
@@ -1082,14 +1165,14 @@
         C.lastMoveSentAt = now;
         C.socket.emit('playerMove', {
           tx: Math.round(C.targetWorld.x),
-          ty: Math.round(C.targetWorld.y),
+          ty: Math.round(C.targetWorld.y), roomId:C.room?.roomId, deathId:C.playerStates.get(C.myId)?.deathId,motionRevision:C.playerStates.get(C.myId)?.motionRevision || 0,
         });
       }
     }
 
     _predictLocal(delta) {
       if (!this._prediction || C.dead || !C.connected) return;
-      const blocked = C.menuOpen || C.respawnBusy || this._features?.blocking || window.AdManager?.busy;
+      const blocked = C.menuOpen || C.evolutionPaused || C.respawnBusy || this._features?.blocking || this._stashUI?.opened || this._craftingUI?.opened || window.AdManager?.busy;
       const p = this._prediction.state;
       const target = blocked ? { tx: p.x, ty: p.y } : { tx: C.targetWorld.x, ty: C.targetWorld.y };
       const result = this._prediction.advance(delta, target, C.world, this._obstacles, input => {
@@ -1100,7 +1183,7 @@
       });
       const current = C.renderState.get(C.myId) || { drones: [] };
       const dx = result.x - current.x, dy = result.y - current.y;
-      for (const drone of current.drones) { if (drone.state !== 'ATTACK' && drone.state !== 'RETURNING') { drone.x += dx; drone.y += dy; } }
+      for (const drone of current.drones) { if (!['ATTACK','ATTACK_SWARM','DEFENSIVE_SWEEP','RETURNING'].includes(drone.state)) { drone.x += dx; drone.y += dy; } }
       Object.assign(current, result);
       C.renderState.set(C.myId, current);
     }
@@ -1228,7 +1311,7 @@
       if (!cont.visible) return;
       const label = cont.getByName('name');
       label.y = id === C.kingId ? -62 : -38;
-      const name = (meta.name || I.t('pilot')).slice(0, 16);
+      const name = (meta.clanTag?'['+meta.clanTag+'] ':'')+(meta.name || I.t('pilot')).slice(0, 16);
       const title = meta.equippedTitle && meta.titles?.includes(meta.equippedTitle) ? meta.equippedTitle : '';
       I.render(label, name, 'phaserText');
       let titleLabel = cont.getByName('title');
@@ -1242,17 +1325,18 @@
       // Text color changes rebuild the canvas texture: never request it every frame.
       if (titleLabel.style?.color !== titleColor) titleLabel.setColor(titleColor);
       const body = cont.getByName('body');
-      const texture = 'ship-' + team + '-' + (meta.chassis || 1);
+      const texture = 'ship-' + team + '-' + (window.FleetShipClasses?.definition(meta.shipClass)?meta.shipClass:(meta.chassis || 1));
       if (body._chassisTexture !== texture) { body.setTexture(texture); body._chassisTexture = texture; }
-      body.setScale(meta.chassis === 4 ? 0.85 : meta.chassis === 3 ? 0.7 : meta.chassis === 2 ? 0.6 : 0.55);
+      body.setScale(window.FleetShipClasses.renderScale(meta));
       body.setTint(isMe && meta.isInvulnerable ? 0x00ffff : window.FleetFeatures?.SKIN_COLORS[meta.skin] || 0xffffff);
       if (isMe && meta.isInvulnerable && !body._revengeTween) {
         body._revengeTween = this.tweens.add({targets:body,alpha:.4,duration:180,yoyo:true,repeat:-1});
       } else if (!meta.isInvulnerable && body._revengeTween) { body._revengeTween.stop();body._revengeTween=null;body.setAlpha(1); }
+      if (!body._revengeTween) body.setAlpha(meta.cloakRemaining > 0 ? (isMe ? .28 : .06) : 1);
       cont.getByName('crown').setVisible(id === C.kingId);
       body.rotation = renderPos.rotation ?? Math.atan2(meta.vy || 0, meta.vx || 1);
       const shield = cont.getByName('shield');
-      shield.setVisible(isMe || meta.invulnerable || meta.shielded || meta.isParrying || meta.revengeShieldRemaining > 0 || meta.supplyBuff === 'MIRROR_SHIELD');
+      shield.setVisible(isMe || meta.invulnerable || meta.powerShieldRemaining>0 || meta.shielded || meta.isParrying || meta.revengeShieldRemaining > 0 || meta.supplyBuff === 'MIRROR_SHIELD');
       shield.setTint(meta.revengeShieldRemaining > 0 ? 0xffd454 : meta.isParrying ? 0x00ffff : 0xffffff);
       shield.setScale(meta.shielded ? 0.9 + Math.sin(this._visualTime * 8) * 0.1 : 0.6);
       shield.alpha = meta.revengeShieldRemaining > 0 ? .8 : meta.invulnerable ? 0.65 + Math.sin(this._visualTime * 5) * 0.2 : 0.4;
@@ -1270,7 +1354,7 @@
       for (let i = 0; i < drones.length; i++) {
         const sprite = container.list[i], drone = drones[i];
         sprite.x = drone.x - renderPos.x; sprite.y = drone.y - renderPos.y;
-        sprite.rotation = drone.state === 'ATTACK' ? (drone.rotation || 0) + Math.PI / 2 : Math.atan2(sprite.y, sprite.x) + Math.PI / 2;
+        sprite.rotation = ['ATTACK','ATTACK_SWARM'].includes(drone.state) ? (drone.rotation || 0) : Math.atan2(sprite.y, sprite.x);
         sprite.setScale(drone.autonomous ? 0.28 : 0.18);
       }
     }
@@ -1304,6 +1388,24 @@
       this._nameTexts.delete(id);
     }
 
+    _finishExtraction() {
+      // Server has already committed the stash and evacuated this ship.
+      C.joined=false;C.dead=false;C.menuOpen=true;C.myId=null;C.room=null;C.respawnBusy=false;C._joinPending=false;
+      // Change state before closing overlays: their lifecycle hooks must not restart gameplay.
+      window.AdManager?.gameplayStop?.();this._features?.settle();this._classUI?.close();
+      if(this._features?.blocking)this._features.close();
+      C.playerStates.clear();C.renderState.clear();C.scraps.clear();C._prevStates?.clear();
+      this._prediction=null;this._decoder.reset();this._projectileStates.clear();this._bullets?.reset();this._obstacles=[];
+      for(const id of this._playerSprites.keys())this._removePlayer(id);
+      this._thrust?.killAll();this._stashUI?.reset();this._powerupUI?.reset();
+      this._competitive?.reset?.();this._hazards?.reset?.();this._engagement?.reset?.();
+      this._retention?.reset();
+      updateRoomHUD(null);hideMutations();
+      document.getElementById('death-overlay').classList.add('hidden');
+      document.getElementById('resume-btn').hidden=true;document.getElementById('overlay').classList.remove('hidden');
+      setStatus(M('exit.success'),'');
+    }
+
     _explodePlayer(id, meta) {
       const pos = C.renderState.get(id) || meta;
       this._explodeAt(pos.x, pos.y, true);
@@ -1333,7 +1435,9 @@
       try { localStorage.setItem('fleetio.name', name); } catch { /* Optional in-memory profile. */ }
       setJoining(true);
       setStatus(M('status.room'), 'connecting');
-      C.socket.timeout(10000).emit(event, { name, roomCode }, (error, result) => {
+      const cosmetics=window.FleetGarageLoadout?.() || {};
+      C.socket.timeout(10000).emit(event, { name, roomCode, cosmetics }, (error, result) => {
+        if (disposed || !C.connected) return;
         setJoining(false);
         if (error || !result?.ok) {
           setStatus(I.error(result?.error), 'error');
@@ -1345,18 +1449,16 @@
     document.getElementById('singleplayer-btn').onclick = () => enter('startSinglePlayer');
     document.getElementById('join-room-btn').onclick = () => {
       const code = codeInput.value.trim().toUpperCase();
-      if (!/^[A-Z2-9]{6}$/.test(code)) {
+      if (!/^(FLEET-)?[A-Z2-9]{6}$/.test(code)) {
         setStatus(M('status.code'), 'error');
         return;
       }
       enter('joinRoom', code);
     };
-    input.addEventListener('keydown', event => {
-      if (event.key === 'Enter') enter('joinRoom', 'public');
-    });
-    codeInput.addEventListener('keydown', event => {
-      if (event.key === 'Enter') document.getElementById('join-room-btn').click();
-    });
+    const onNameKey = event => { if (event.key === 'Enter') enter('joinRoom', 'public'); };
+    input.addEventListener('keydown', onNameKey);
+    const onCodeKey = event => { if (event.key === 'Enter') document.getElementById('join-room-btn').click(); };
+    codeInput.addEventListener('keydown', onCodeKey);
     document.getElementById('menu-btn').onclick = () => {
       if (window.AdManager?.busy) return;
       C.menuOpen = true;
@@ -1377,7 +1479,14 @@
         I.render(status, M('status.copyManual'));
       }
     };
-    setTimeout(() => input.focus(), 100);
+    const focusTimer = setTimeout(() => input.focus(), 100);
+    let disposed = false;
+    return () => {
+      disposed = true; clearTimeout(focusTimer);
+      input.removeEventListener('keydown', onNameKey);
+      codeInput.removeEventListener('keydown', onCodeKey);
+      for (const id of [...buttons, 'menu-btn', 'resume-btn', 'copy-room-btn']) document.getElementById(id).onclick = null;
+    };
   }
 
   function updateRoomHUD(room) {
@@ -1410,7 +1519,7 @@
   }
 
   function syncGameplayTracking() {
-    const playing = C.connected && C.joined && !C.dead && !C.menuOpen && !C.mutationsOpen &&
+    const playing = C.connected && C.joined && !C.dead && !C.menuOpen && !C.mutationsOpen && !C.evolutionPaused &&
       !document.querySelector?.('.feature-modal:not(.hidden)');
     window.AdManager?.[playing ? 'gameplayStart' : 'gameplayStop']?.();
   }
@@ -1421,7 +1530,8 @@
     const drones = document.getElementById('hud-drones');
     if (score && score.textContent !== String(C._score || 0)) I.render(score, String(C._score || 0));
     if (scrap && scrap.textContent !== String(C._scrap || 0)) I.render(scrap, String(C._scrap || 0));
-    if (drones && drones.textContent !== `${C._drones || 0} / 12`) I.render(drones, `${C._drones || 0} / 12`);
+    if(window.FleetHUDUI)window.FleetHUDUI.updateDroneCount(C._drones || 0);
+    else if(drones)I.render(drones,String(C._drones || 0));
     const hp = document.getElementById('hud-hp');
     const level = document.getElementById('hud-level');
     const bar = document.getElementById('hud-hp-bar');
@@ -1429,7 +1539,7 @@
     if (level && level.textContent !== String(C._level)) I.render(level, String(C._level));
     const progressNode = document.getElementById('hud-level-progress');
     if (progressNode && window.FleetProgression) {
-      const text = C._level >= 40 ? M('level.max') : `${C._xp} / ${window.FleetProgression.requiredXP(C._level)} XP`;
+      const text = C._level >= window.FleetProgression.MAX_LEVEL ? M('level.max') : `${C._xp} / ${window.FleetProgression.requiredXP(C._level)} XP`;
       if (progressNode.textContent !== String(text)) I.render(progressNode, text);
     }
     if (bar) {
@@ -1456,7 +1566,7 @@
       I.render(button, M('mutation.card', { icon: option.icon || '✦', name: M('mutation.' + option.type + '.name'), description: M('mutation.' + option.type + '.desc') }));
       button.onclick = () => {
         if (C.dead || !C.connected) return;
-        C.socket.emit('selectUpgrade', { type: option.type });
+        C.socket.emit('selectUpgrade', { type: option.type, roomId: C.room?.roomId, deathId: C.playerStates.get(C.myId)?.deathId });
         for (const sibling of box.children) sibling.disabled = true;
       };
       box.append(button);
@@ -1549,5 +1659,5 @@
     }
   }
 
-  window.FleetGame = { boot: bootPhaser, GameScene, BootScene };
+  window.FleetGame = { boot: bootPhaser, GameScene, BootScene, trackGameplay:syncGameplayTracking };
 })();

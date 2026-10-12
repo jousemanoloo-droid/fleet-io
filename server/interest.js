@@ -11,9 +11,10 @@ class InterestGrid {
       bucket.push(row);
     }
   }
-  query(x, y) {
+  query(x, y, reach = 1) {
     const result = [], cx = Math.floor(x / SIZE), cy = Math.floor(y / SIZE);
-    for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+    reach = Math.min(2, Math.max(1, reach));
+    for (let dx = -reach; dx <= reach; dx++) for (let dy = -reach; dy <= reach; dy++) {
       const bucket = this.cells.get(`${cx + dx}:${cy + dy}`);
       if (bucket) result.push(...bucket);
     }

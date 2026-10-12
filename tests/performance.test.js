@@ -153,15 +153,15 @@ test('mutations unlock at levels 10 and 20, never at ordinary level increments',
   }
 });
 
-test('30 server ticks broadcast 30 snapshots and consume only one queued command per tick', () => {
+test('30 server ticks broadcast 20 snapshots and consume only one queued command per tick', () => {
   const p = new Player('pilot', 'Pilot');
   p.inputQueue.push({ seq: 1, tx: 2000, ty: 2000 }, { seq: 2, tx: 3000, ty: 3000 });
-  const loop = new GameLoop({ players: { pilot: p }, scraps: {}, world: {width:4000,height:4000} }, {});
+  const loop = new GameLoop({ players: { pilot: p }, scraps: {}, world: {width:4000,height:4000} }, {to:()=>({emit(){}})});
   let broadcasts = 0;
   for (const method of ['_updateScrap', '_checkScrapCollection', '_maybeSpawnScrap', '_processDeaths']) loop[method] = () => {};
   loop._broadcastState = () => broadcasts++;
   loop._tick(); assert.equal(p.inputSeq, 1);
   loop._tick(); assert.equal(p.inputSeq, 2);
   for (let i = 2; i < 30; i++) loop._tick();
-  assert.equal(broadcasts, 30);
+  assert.equal(broadcasts, 20);
 });

@@ -129,6 +129,10 @@ test('socket handlers reject living, duplicate and stale requests; ignore client
       if (name === 'socket.io') return { Server: FakeIO };
       if (name === './entities') return require('../server/entities');
       if (name === './rpg') return require('../server/rpg');
+      if (name === './shipClasses') return require('../server/shipClasses');
+      if (name === './cosmetics') return require('../server/cosmetics');
+      if (name === './accounts') return require('../server/accounts');
+      if (name === './socketSafety') return require('../server/socketSafety');
       if (name === './origins') return require('../server/origins');
       if (name === './worldEvents') return require('../server/worldEvents');
       if (name === './gameLoop') return { GameLoop: class { start() {} } };
@@ -139,8 +143,8 @@ test('socket handlers reject living, duplicate and stale requests; ignore client
     process: { env: {}, on() {} }, console,
   };
   const source = fs.readFileSync(path.join(__dirname, '../server/server.js'), 'utf8');
-  vm.runInNewContext(source + '\nglobalThis.state = roomManager;', context);
-  t.after(() => context.state.destroy());
+  vm.runInNewContext(source + '\nglobalThis.state = roomManager;globalThis.accounts = accounts;', context);
+  t.after(() => {context.state.destroy();context.accounts.destroy();});
   onConnection({ id: 'pilot', join() {}, leave() {}, on: (name, fn) => { handlers[name] = fn; }, emit: (...args) => emitted.push(args) });
   handlers.join({ name: 'Pilot' });
   const p = context.state.current('pilot').players.get('pilot');
@@ -151,9 +155,15 @@ test('socket handlers reject living, duplicate and stale requests; ignore client
   p.score = 110; p.scrapCollected = 11;
   for (let i = 0; i < 5; i++) p.addDrone(`d${i}`);
   p.die();
+  const authorizeRevive=()=>{
+    context.accounts.sessions.get('pilot').record.state.adReadyAt=0;
+    handlers.accountAction({action:'startAd',purpose:'revive',roomId:context.state.current('pilot').roomId,deathId:p.deathId},ack);
+    const ticket=result.ticket;handlers.accountAction({action:'finishAd',id:ticket},ack);assert.equal(result.ok,true);
+  };
   handlers.requestRewardedRespawn({ deathId: 999 }, ack);
   assert.equal(result.ok, false);
-  handlers.requestRewardedRespawn({ deathId: p.deathId, score: 999999, drones: 100 }, ack);
+  authorizeRevive();
+  handlers.requestRewardedRespawn({ roomId: context.state.current('pilot').roomId,deathId: p.deathId, score: 999999, drones: 100 }, ack);
   assert.equal(result.ok, true);
   assert.equal(p.score, 55);
   assert.equal(p.drones.length, 2);
@@ -163,6 +173,8 @@ test('socket handlers reject living, duplicate and stale requests; ignore client
   assert.equal(context.state.current('pilot').players.get('pilot'), p);
   assert.equal(emitted.filter(([name]) => name === 'respawned').length, 2);
   const room = context.state.current('pilot');
+  handlers.joinClan({tag:'[ace]'},ack);assert.equal(result.ok,true);assert.equal(p.clanTag,'ACE');
+  handlers.joinClan({tag:'XYZ'},ack);assert.equal(result.ok,false,'clan changes are rate limited');
   p.attributePoints = 3;
   handlers.allocateAttribute({ roomId: 'old', attribute: 'shield' }, ack);
   assert.equal(result.ok, false);
@@ -170,11 +182,11 @@ test('socket handlers reject living, duplicate and stale requests; ignore client
   assert.equal(result.ok, false, 'a request from a previous life is rejected');
   handlers.allocateAttribute({ roomId: room.roomId, deathId: p.deathId, attribute: 'shield' }, ack);
   assert.equal(result.ok, true); assert.equal(p.attributePoints, 2); assert.equal(p.maxHp, 150);
-  handlers.useAbility({ roomId: room.roomId, type: 'shield' }, ack);
+  handlers.useAbility({ roomId: room.roomId, deathId: p.deathId, type: 'shield' }, ack);
   assert.equal(result.ok, true);
   handlers.useAbility({ roomId: room.roomId, type: 'shield' }, ack);
   assert.equal(result.ok, false, 'cooldown cannot be bypassed');
-  handlers.claimDailyBoost({}, ack); assert.equal(result.ok, true);
+  handlers.claimDailyBoost({}, ack); assert.equal(result.ok, false, 'no unearned daily boost');
   handlers.claimDailyBoost({}, ack); assert.equal(result.ok, false);
   room.events.award(p, 5000, 'bounty');
   const reward = p.coinRewards[0];
@@ -188,6 +200,7 @@ test('socket handlers reject living, duplicate and stale requests; ignore client
   room.players.set(killer.id, killer); room.obstacles.clear();
   p.shieldUntil = p.spawnProtectionUntil = 0;
   p.takeDamage(p.hp, killer);
+  authorizeRevive();
   handlers.requestRevengeRespawn({ roomId: room.roomId, deathId: p.deathId }, ack);
   assert.equal(result.ok, true);
   assert.ok(Math.hypot(p.x - killer.x, p.y - killer.y) >= 400);
@@ -196,6 +209,23 @@ test('socket handlers reject living, duplicate and stale requests; ignore client
   assert.ok(p.revengeShieldUntil > Date.now());
   handlers.requestRevengeRespawn({ roomId: room.roomId, deathId: p.deathId }, ack);
   assert.equal(result.ok, false, 'revenge cannot resurrect twice');
+  require('../server/rpg').addXP(p, require('../client/js/progression').thresholdXP(10));
+  handlers.chooseShipClass(null, ack); assert.equal(result.ok,false);
+  handlers.chooseShipClass({roomId:'old',deathId:p.deathId,classId:'hunter',milestone:10},ack); assert.equal(result.ok,false);
+  handlers.chooseShipClass({roomId:room.roomId,deathId:p.deathId-1,classId:'hunter',milestone:10},ack); assert.equal(result.ok,false);
+  handlers.chooseShipClass({roomId:room.roomId,deathId:p.deathId,classId:Object.create(null),milestone:10},ack); assert.equal(result.ok,false);
+  handlers.chooseShipClass({roomId:room.roomId,deathId:p.deathId,classId:'hunter',milestone:45},ack); assert.equal(result.ok,false);
+  handlers.chooseShipClass({roomId:room.roomId,deathId:p.deathId,classId:'hunter',milestone:10},ack); assert.equal(result.ok,true);
+  handlers.chooseShipClass({roomId:room.roomId,deathId:p.deathId,classId:'hunter',milestone:10},ack); assert.equal(result.ok,false);
+  p.levelUpPending=true;p.upgradeOptions=['nano_armor'];
+  handlers.selectUpgrade({type:'nano_armor',roomId:room.roomId,deathId:p.deathId-1});assert.equal(p.levelUpPending,true);
+  handlers.selectUpgrade({type:Object.create(null),roomId:room.roomId,deathId:p.deathId});assert.equal(p.levelUpPending,true);
+  handlers.selectUpgrade({type:'nano_armor',roomId:room.roomId,deathId:p.deathId});assert.equal(p.levelUpPending,false);
+  handlers.useAbility({roomId:room.roomId,deathId:p.deathId,type:Object.create(null)},ack);assert.equal(result.ok,false);
+  const skin=p.skin;
+  handlers.setCosmetics({roomId:room.roomId,deathId:p.deathId,skin:'gold',titles:['Space Pirate']});assert.equal(p.skin,skin);
+  assert.ok(!p.titles.includes('Space Pirate'));
+
 });
 
 test('client death modal blocks input, retries cancelled ads and waits for server respawn', async () => {

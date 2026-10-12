@@ -9,6 +9,7 @@
       for (let i = 0; i < 400; i++) {
         const sprite = scene.bulletGroup.create(0, 0, 'fleet-laser').setDepth(5).setScale(.65)
           .setBlendMode(Phaser.BlendModes.ADD).setActive(false).setVisible(false);
+        sprite.setOrigin?.(0,.5);
         sprite.body.stop(); sprite.body.enable = false;
         this.free.push({ sprite, key: null, predicted: false, x: 0, y: 0, vx: 0, vy: 0, seen: 0, expires: 0, revision: 0, correctionX: 0, correctionY: 0 });
       }
@@ -69,13 +70,15 @@
       }
       if (!target) return;
       this.nextAt = now + (me.fireCooldown || 400);
-      const offsets = me.chassis === 4 ? [-15, -5, 5, 15] : me.chassis >= 2 ? [-5, 5] : [0];
-      for (const offset of offsets) {
+      if (me.evolutionPending || me.cloakRemaining > 0) return;
+      const model={x:pos.x,y:pos.y,rotation:pos.rotation,vx:pos.vx,vy:pos.vy,chassis:me.chassis,shipClass:me.shipClass,powerTripleRemaining:me.powerTripleRemaining};
+      for (const shot of global.FleetShipClasses.pattern(model)) {
         const slot = this.acquire(`local:${me.deathId}:${++this.sequence}`); if (!slot) break;
-        const launch = global.FleetBallistics.launch({ ...me, vx: pos.vx, vy: pos.vy }, pos, target, offset);
+        const launch = global.FleetBallistics.launch(model,{...global.FleetShipClasses.muzzle(model,shot.gun),spread:shot.spread},target);
         slot.x = launch.x; slot.y = launch.y; slot.vx = launch.vx * 30; slot.vy = launch.vy * 30;
         slot.predicted = true; slot.expires = now + 350; slot.seen = now; slot.revision = 0;
-        slot.sprite.setTint(me.color); slot.sprite.rotation = launch.rotation;
+        const color = me.laserStyle === 'rainbow' ? [0xff3366,0xffcc33,0x00ff88,0x20dfff,0xcc66ff][this.sequence%5] : ({blue:0x20dfff,green:0x00ff88,red:0xff3366}[me.laserStyle] || me.color);
+        slot.sprite.setTint(color); slot.sprite.rotation = launch.rotation;
       }
     }
     update(now, delta) {

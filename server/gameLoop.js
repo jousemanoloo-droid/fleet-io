@@ -5,6 +5,8 @@
 
 const TICK_RATE = 30;
 const TICK_INTERVAL = 1000 / TICK_RATE;
+// Keep collision/input simulation at 30Hz while bounding snapshot bandwidth.
+const SNAPSHOT_RATE = 20;
 const { updateCombat, resolveObstacles } = require('./combat');
 const Network = require('../client/js/network');
 const RPG = require('./rpg');
@@ -23,6 +25,7 @@ class GameLoop {
     this.tickCount = 0;
     this._interval = null;
     this.keyframe = null;
+    this._rankRows = null;
     this.clientFrames = new Map();
     this._lastScrapSpawn = 0;
     gameState.swarm ||= new (require('./swarm').DroneSwarm)(gameState);
@@ -41,6 +44,9 @@ class GameLoop {
   stop() {
     this.running = false;
     this.clientFrames.clear();
+    this.keyframe = null;
+    this._rankRows = null;
+    this._snapshotAccumulator = 0;
     if (this._interval) {
       clearInterval(this._interval);
       this._interval = null;
@@ -48,14 +54,18 @@ class GameLoop {
   }
 
   _tick() {
+    if(this.state.destroyed)return;
     this.tickCount++;
 
     this.state.competitive.update();
     this.state.hazards.update();
+    this.state.environment?.update();
+    this.state.powerups?.update();
     this._updatePlayers();
     this.state.impacts = [];
     this.state.swarm.update();
     updateCombat(this.state, this.tickCount);
+    this.state.extraction?.update();
     this._processDeaths();
     this._updateScrap();
     this._checkScrapCollection();
@@ -64,8 +74,24 @@ class GameLoop {
     this._processDeaths();
     this.state.events.update();
     this._flushProgression();
+    // All movement, hazards, combat and boss damage precede extraction validation.
+    this.state.extractionGates?.update();
+    this.state.playerExtraction?.update(1/TICK_RATE);
+    if(this.state.destroyed)return; // The last solo player may evacuate and destroy the room.
+    for(const p of this.state.players.values()){
+      const count=require('./droneCounts').activeDroneCount(p);
+      if(p._sentDroneCount===count)continue;
+      p._sentDroneCount=count;p.droneCountRevision=(p.droneCountRevision || 0)+1;
+      if(!p.isBot){
+        const n=p.toNetwork();this.io.to(p.id).emit('drones:count-update',{roomId:this.state.roomId,playerId:p.id,deathId:p.deathId,
+          motionRevision:p.motionRevision || 0,revision:p.droneCountRevision,activeDroneCount:count,
+          drones:n.drones,tacticalDrones:n.tacticalDrones,orbitalDrones:n.orbitalDrones});
+      }
+    }
 
-    this._broadcastState(); // 30 snapshots/s, independiente del refresco del cliente.
+    for (const p of this.state.players.values()) p.account?.observe(false);
+    this._snapshotAccumulator=(this._snapshotAccumulator || 0)+SNAPSHOT_RATE;
+    if(this._snapshotAccumulator>=TICK_RATE){this._snapshotAccumulator-=TICK_RATE;this._broadcastState();}
   }
 
   _updatePlayers() {
@@ -130,10 +156,11 @@ class GameLoop {
     for (const player of this.state.players.values()) {
       if (player.alive && player.levelUpPending && !player.upgradeOptions?.length) {
         const options = generateRandomUpgrades(3, player.mutations);
-        if (player.isBot) player.chooseUpgrade(options);
+        if (!options.length) {player.levelUpPending=false;player.invulnerable=false;}
+        else if (player.isBot) player.chooseUpgrade(options);
         else {
           player.upgradeOptions = options.map(option => option.type);
-          this.io.to(player.id).emit('showLevelUpOptions', { roomId: this.state.roomId, level: player.level, options });
+          this.io.to(player.id).emit('showLevelUpOptions', { roomId: this.state.roomId, deathId: player.deathId, level: player.level, options });
         }
       }
       for (const event of player.pendingLevelUps.splice(0)) {
@@ -153,7 +180,7 @@ class GameLoop {
       if (!player || !player.alive || player.hp <= 0) continue;
 
       // Si el jugador está eligiendo una mutación, no recoge chatarra
-      if (player.levelUpPending) continue;
+      if (player.levelUpPending || player.evolutionPending) continue;
 
       const collectRadius = player.collectRadius;
 
@@ -175,7 +202,7 @@ class GameLoop {
           }
 
           if (!player.isBot) this.io.to(pid).emit('scrapCollected', {
-            roomId: this.state.roomId,
+            roomId: this.state.roomId, deathId: player.deathId,
             scrapId: sid,
             value: scrap.value,
             score: player.score,
@@ -190,11 +217,12 @@ class GameLoop {
           // Si la recogida provocó una subida de nivel, mostrar opciones de mutación
           if (player.levelUpPending) {
             const options = generateRandomUpgrades(3, player.mutations);
+            if (!options.length) {player.levelUpPending=false;player.invulnerable=false;continue;}
             if (player.isBot) player.chooseUpgrade(options);
             else {
               player.upgradeOptions = options.map(option => option.type);
               this.io.to(pid).emit('showLevelUpOptions', {
-                roomId: this.state.roomId,
+                roomId: this.state.roomId, deathId: player.deathId,
                 level: player.level,
                 options,
               });
@@ -227,7 +255,7 @@ class GameLoop {
 
   _broadcastState() {
     const king = Array.from(this.state.players.values()).filter(p => p.alive).sort((a, b) => b.score - a.score)[0];
-    const playersPayload = Array.from(this.state.players.values(), Network.packPlayer);
+    const playersPayload = Array.from(this.state.players.values(), p => Network.packPlayer(p,!p.account));
     const scrapsPayload = Array.from(this.state.scraps.values(), s =>
       [s.id, Math.round(s.x), Math.round(s.y), s.value, s.color, +s.spin.toFixed(2)]);
 
@@ -248,11 +276,21 @@ class GameLoop {
       competitive: this.state.competitive.snapshot(),
       hazards: this.state.hazards.snapshot(),
       engagement: this.state.engagement.snapshot(),
+      powerups:this.state.powerups?.snapshot() || [], environment:this.state.environment?.snapshot() || [],
+      resources:this.state.extraction?.snapshot() || [],
     };
 
     // Pack once, index once. Only small global rankings/event markers cross AOI.
-    snapshot.leaderboard = [...this.state.players.values()].sort((a,b) => b.score-a.score).slice(0,10)
-      .map(p => ({id:p.id,name:p.name,score:p.score,titles:p.titles}));
+    if(!this._rankRows || this.tickCount-(this._rankTick || 0)>=30) {
+      this._rankTick=this.tickCount;
+      const ranked=[...this.state.players.values()].sort((a,b)=>b.score-a.score || a.id.localeCompare(b.id));
+      this._rankRows=ranked.slice(0,10).map(p=>({id:p.id,name:p.name,score:p.score,titles:p.titles}));
+      for(let i=0;i<ranked.length;i++){
+        const p=ranked[i];if(p.isBot || p._sentRoomRank===i+1)continue;p._sentRoomRank=i+1;
+        this.io.to(p.id).emit('room:rank',{roomId:this.state.roomId,playerId:p.id,rank:i+1,tick:this.tickCount});
+      }
+    }
+    snapshot.leaderboard=this._rankRows;
     const grids = {
       p: new InterestGrid(snapshot.p, p => [p[1],p[2]]),
       s: new InterestGrid(snapshot.s, p => [p[1],p[2]]),
@@ -262,25 +300,41 @@ class GameLoop {
       g: new InterestGrid(snapshot.w.g || [], p => [p[1],p[2]]),
     };
     const sectorPackets = new Map(), humans = new Set();
+    const baselines = new Map(), deltas = new WeakMap();
     for (const pilot of this.state.players.values()) {
       if (pilot.isBot) continue;
       humans.add(pilot.id);
       const sector = `${Math.floor(pilot.x/SIZE)}:${Math.floor(pilot.y/SIZE)}`;
-      let current = sectorPackets.get(sector);
+      const reach = !pilot.radiation && (pilot.attributes.vision || 0) > 0 ? 2 : 1;
+      const cacheKey = `${sector}:${reach}`;
+      let current = sectorPackets.get(cacheKey);
       if (!current) {
-        current = {...snapshot, aoi:sector, w:{...snapshot.w,g:grids.g.query(pilot.x,pilot.y)}};
-        for (const key of ['p','s','b','o','i']) current[key]=grids[key].query(pilot.x,pilot.y);
-        sectorPackets.set(sector,current);
+        current = {...snapshot, aoi:sector, w:{...snapshot.w},gems:grids.g.query(pilot.x,pilot.y,reach)};
+        delete current.w.g; // Gem changes use the same loss-tolerant delta protocol.
+        for (const key of ['p','s','b','o','i']) current[key]=grids[key].query(pilot.x,pilot.y,reach);
+        const cx=(Math.floor(pilot.x/SIZE)+.5)*SIZE,cy=(Math.floor(pilot.y/SIZE)+.5)*SIZE;
+        const nearby=(row,padding=0)=>Math.abs(row[1]-cx)<=(reach+.5)*SIZE+padding && Math.abs(row[2]-cy)<=(reach+.5)*SIZE+padding;
+        current.powerups=snapshot.powerups.filter(row=>nearby(row));
+        current.resources=snapshot.resources.filter(row=>nearby(row));
+        current.environment=snapshot.environment.filter(row=>nearby(row,row[3]));
+        sectorPackets.set(cacheKey,current);
       }
       const rival = this.state.players.get(pilot.nemesisId);
       current = {...current, nemesis: rival?.alive ? {id:rival.id,name:rival.name,x:rival.x,y:rival.y,hp:rival.hp} : null};
       const previous = this.clientFrames.get(pilot.id);
       // A reliable fresh baseline on each sector transition avoids delta holes.
       if (!previous || previous.aoi !== sector || current.t-previous.t >= 30) {
-        const baseline = JSON.parse(JSON.stringify({...current,keyframe:current.t}));
+        let shared=baselines.get(cacheKey);
+        if(!shared){shared=JSON.parse(JSON.stringify({...current,keyframe:current.t}));baselines.set(cacheKey,shared);}
+        const baseline = {...shared,nemesis:current.nemesis};
         this.clientFrames.set(pilot.id,baseline);
         this.io.to(pilot.id).emit('gameState',baseline);
-      } else this.io.to(pilot.id).volatile.emit('gameState',Network.delta(previous,current));
+      } else {
+        let cache=deltas.get(previous.p);if(!cache){cache=new WeakMap();deltas.set(previous.p,cache);}
+        let packet=cache.get(current.p);
+        if(!packet){packet=Network.delta(previous,current);cache.set(current.p,packet);}
+        this.io.to(pilot.id).volatile.emit('gameState',{...packet,nemesis:current.nemesis});
+      }
     }
     for (const id of this.clientFrames.keys()) if (!humans.has(id)) this.clientFrames.delete(id);
 
@@ -324,8 +378,8 @@ const UPGRADE_CATALOG = [
 // Devuelve `count` opciones de mutación únicas (sin repetir tipo).
 function generateRandomUpgrades(count, ownedMutations = []) {
   const pool = UPGRADE_CATALOG.filter((u) => !ownedMutations.includes(u.type));
-  const available = pool.length >= count ? pool : UPGRADE_CATALOG.slice();
-  const shuffled = available.slice().sort(() => Math.random() - 0.5);
+  const shuffled = pool.slice();
+  for(let i=shuffled.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[shuffled[i],shuffled[j]]=[shuffled[j],shuffled[i]];}
   return shuffled.slice(0, count).map((u) => ({
     type: u.type,
     icon: u.icon,

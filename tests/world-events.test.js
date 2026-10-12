@@ -74,6 +74,7 @@ test('bounties issue once at ten kills or level 40 and award 5000 coins to the k
 });
 test('meteor warning precedes a bounded 15-rock storm by 15 seconds; gold has triple HP and fivefold yield', () => {
   const { events, room, messages } = fixture();
+  events.nextBoss=1000000000;
   events.update(224999); assert.equal(messages.length, 0);
   events.update(225000); assert.equal(messages[0].name, 'METEOR_WARN');
   events.update(240000); assert.equal(room.obstacles.size, 15);
@@ -88,6 +89,7 @@ test('meteor warning precedes a bounded 15-rock storm by 15 seconds; gold has tr
 test('Leviathan patrol/aggression salvo and proportional 60/40 loot conserve XP and coins', () => {
   const { events, player, room } = fixture('a', 'b');
   player('a').x = player('b').x = 3500;
+  events.spawnBoss();events.boss.x=events.boss.y=2000;events.nextBoss=1000000000;
   events.update(600000); assert.equal(events.boss.state, 'PATROL');
   player('a').x = player('a').y = 2000;
   events.update(600001); assert.equal(events.boss.state, 'AGGRESSION'); assert.equal(room.projectiles.size, 24);

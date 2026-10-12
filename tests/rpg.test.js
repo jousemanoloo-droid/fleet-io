@@ -15,7 +15,7 @@ function pilot(id = 'pilot') { const p = new Player(id, id); p.x = p.y = p.targe
 
 test('XP has exact per-level costs, 3 points per level and four evolution tiers', () => {
   const p = pilot();
-  for (let level = 1; level < 40; level++) {
+  for (let level = 1; level < P.MAX_LEVEL; level++) {
     p.levelUpPending = false; p.invulnerable = false;
     const remaining = P.requiredXP(level) - p.xp;
     RPG.addXP(p, remaining - 1); assert.equal(p.level, level);
@@ -23,9 +23,9 @@ test('XP has exact per-level costs, 3 points per level and four evolution tiers'
     assert.equal(p.attributePoints, level * 3);
     assert.equal(p.xp, 0);
   }
-  RPG.addXP(p, 1000000); assert.equal(p.level, 40); assert.equal(p.attributePoints, 117);
+  RPG.addXP(p, 10000000); assert.equal(p.level, P.MAX_LEVEL); assert.equal(p.attributePoints, (P.MAX_LEVEL-1)*3);
   assert.deepEqual([1, 10, 25, 40].map(RPG.tier), [1, 2, 3, 4]);
-  assert.equal(p.pendingLevelUps.length, 39);
+  assert.equal(p.pendingLevelUps.length, P.MAX_LEVEL-1);
 });
 
 test('attribute allocation rejects overspending and enforces exact caps', () => {
@@ -93,6 +93,8 @@ test('killer capture and streak credit occur only once and revenge spawn respect
 
 test('RPG snapshot roundtrip preserves abilities, XP, attributes, cosmetics and killer info', () => {
   const p = pilot(), attacker = pilot('attacker'); RPG.addXP(p, P.thresholdXP(25));
+  const Classes = require('../server/shipClasses');
+  Classes.choose(p, 'carrier', 10); Classes.choose(p, 'carrier', 25);
   p.skin = 'gold'; p.trail = 'purple'; p.applyUpgrade('nano_armor'); p.takeDamage(1000, attacker);
   const n = Network.player(Network.packPlayer(p));
   assert.equal(n.level, 25); assert.equal(n.chassis, 3); assert.equal(n.attributePoints, 72);

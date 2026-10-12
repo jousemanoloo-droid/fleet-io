@@ -4,9 +4,9 @@ const assert = require('node:assert/strict');
 const Progression = require('../client/js/progression');
 const { Player } = require('../server/entities');
 
-test('RPG costs follow the requested XP power curve and cap progression at 40', () => {
+test('RPG costs follow the requested XP power curve and allow evolution at level 45', () => {
   assert.deepEqual([1, 2, 3, 4, 5, 6].map(Progression.cost), [10, 27, 46, 70, 95, 123]);
-  for (let level = 2; level < 40; level++) {
+  for (let level = 2; level < Progression.MAX_LEVEL; level++) {
     const threshold = Progression.threshold(level);
     assert.ok(Progression.cost(level) > Progression.cost(level - 1));
     assert.equal(Progression.levelForScrap(threshold - 1), level - 1);
@@ -15,7 +15,7 @@ test('RPG costs follow the requested XP power curve and cap progression at 40', 
   }
   assert.deepEqual(Progression.progress(35), { level: 2, collected: 25, required: 27 });
   assert.deepEqual(Progression.progress(37), { level: 3, collected: 0, required: 46 });
-  assert.equal(Progression.levelForXP(Number.MAX_SAFE_INTEGER), 40);
+  assert.equal(Progression.levelForXP(Number.MAX_SAFE_INTEGER), Progression.MAX_LEVEL);
 });
 
 test('large scrap drops skip levels correctly and trigger mutation only when crossing a tenth level', () => {

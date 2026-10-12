@@ -145,6 +145,7 @@ class Hazards {
   }
   explode(rock,attacker,now=Date.now()) {
     if(!this.room.obstacles.delete(rock.id))return;
+    require('./resourceTypes').asteroidLoot(this.room.extraction,rock);
     this.chains.delete(rock.id);
     this.emit('PLASMA_EXPLOSION',{id:rock.id,x:rock.x,y:rock.y,radius:300});
     for(const {entity:e,kind}of this.nearby(rock.x,rock.y,300)) {

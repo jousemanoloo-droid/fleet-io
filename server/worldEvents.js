@@ -1,5 +1,7 @@
 'use strict';
 const RPG = require('./rpg');
+const {BossManager}=require('./bossManager');
+const Loot=require('./resourceTypes');
 const EPOCH = Date.now();
 const TITLES = ['Space Terror', 'Leviathan Slayer', 'Dominator', 'Space Pirate', 'Untouchable'];
 const EFFECTS = ['default', 'FROST_SHATTER', 'BLACK_HOLE', 'NEON_GRAFFITI'];
@@ -9,9 +11,9 @@ const EFFECTS = ['default', 'FROST_SHATTER', 'BLACK_HOLE', 'NEON_GRAFFITI'];
 class WorldEvents {
   constructor(room, now = Date.now(), epoch = EPOCH) {
     this.room = room; this.gems = new Map(); this.cores = new Map(); this.bounties = new Map();
-    this.boss = null; this.sequence = 0; this.warned = false;
+    this.bossManager = new BossManager(room,this,now); this.sequence = 0; this.warned = false;
     this.nextMeteor = epoch + (Math.floor((now - epoch) / 240000) + 1) * 240000;
-    this.nextBoss = epoch + (Math.floor((now - epoch) / 600000) + 1) * 600000;
+
   }
   emit(event, data, playerId) {
     if (!playerId && ['death_fx','asteroid_destroyed'].includes(event) && this.room.emitSpatial) {
@@ -69,6 +71,7 @@ class WorldEvents {
       killerId: p.killedBy?.id || null, effect: p.killedBy?.killEffect || 'default', chassis: p.killedBy?.chassis || 1 });
     const bounty = this.bounties.get(p.id);
     const killer = this.room.players.get(p.killedBy?.id);
+    Loot.shipLoot(this.room.extraction,p,killer);
     if (bounty) {
       this.bounties.delete(p.id);
       if (killer && killer.id !== p.id) {
@@ -162,11 +165,7 @@ class WorldEvents {
       this.meteors(); this.warned = false;
       this.nextMeteor += (Math.floor((now - this.nextMeteor) / 240000) + 1) * 240000;
     }
-    if (now >= this.nextBoss) {
-      if (!this.boss) this.spawnBoss();
-      this.nextBoss += (Math.floor((now - this.nextBoss) / 600000) + 1) * 600000;
-    }
-    this.updateBoss(players, now);
+    this.bossManager.update(players, now);
   }
   collect(p, gem) {
     RPG.addXP(p, gem.xp); p.engagement?.collectedXP(p, gem.xp); this.award(p, gem.coins, 'gem');
@@ -188,61 +187,18 @@ class WorldEvents {
     rock.hp = Math.max(0, rock.hp - damage);
     if (rock.hp > 0 || !this.room.obstacles.has(rock.id)) return;
     this.room.obstacles.delete(rock.id);
+    Loot.asteroidLoot(this.room.extraction,rock);
     this.scatter(rock.x, rock.y, rock.gold ? 500 : 100, rock.gold ? 50 : 10);
+    if(rock.gold || rock.radius >= 45) this.room.powerups?.drop(rock.x,rock.y,1);
     this.emit('asteroid_destroyed', { id: rock.id, x: rock.x, y: rock.y, gold: !!rock.gold });
   }
-  spawnBoss() {
-    this.boss = { id: this.id('boss'), x: this.room.world.width / 2, y: this.room.world.height / 2,
-      vx: 0, vy: 0, radius: 100, hp: 12000, maxHp: 12000, alive: true, state: 'PATROL',
-      damageMap: new Map(), nextSalvo: 0, rotation: 0 };
-    this.emit('BOSS_SPAWN', { id: this.boss.id });
-  }
-  updateBoss(players, now) {
-    const b = this.boss; if (!b) return;
-    let target = null, distance = 800;
-    for (const p of players) {
-      const d = Math.hypot(b.x - p.x, b.y - p.y);
-      if (d < distance) { target = p; distance = d; }
-    }
-    b.state = target ? 'AGGRESSION' : 'PATROL';
-    const tx = target?.x ?? this.room.world.width / 2 + Math.cos(now / 12000) * 220;
-    const ty = target?.y ?? this.room.world.height / 2 + Math.sin(now / 12000) * 220;
-    const angle = Math.atan2(ty - b.y, tx - b.x); b.rotation = angle;
-    b.vx = Math.cos(angle) * 35 / 30; b.vy = Math.sin(angle) * 35 / 30;
-    b.x = Math.max(b.radius, Math.min(this.room.world.width - b.radius, b.x + b.vx + (b.hazardKickX || 0)));
-    b.y = Math.max(b.radius, Math.min(this.room.world.height - b.radius, b.y + b.vy + (b.hazardKickY || 0)));
-    b.hazardKickX=(b.hazardKickX || 0)*.9;b.hazardKickY=(b.hazardKickY || 0)*.9;
-    if (target && now >= b.nextSalvo) {
-      b.nextSalvo = now + 3000;
-      for (let i = 0; i < 24 && this.room.projectiles.size < 240; i++) {
-        const a = i / 24 * Math.PI * 2, id = this.id('salvo');
-        this.room.projectiles.set(id, { id, ownerId: b.id, x: b.x + Math.cos(a) * 105,
-          y: b.y + Math.sin(a) * 105, vx: Math.cos(a) * 12, vy: Math.sin(a) * 12,
-          damage: 18, ttl: 75, color: 0xffb830 });
-      }
-    }
-  }
-  bossHit(damage, attacker) {
-    const b = this.boss; if (!b?.alive || !attacker) return;
-    const dealt = Math.min(b.hp, Math.max(0, damage)); b.hp -= dealt;
-    b.damageMap.set(attacker.id, (b.damageMap.get(attacker.id) || 0) + dealt);
-    if (b.hp > 0) return;
-    b.alive = false; this.title(attacker, 'Leviathan Slayer');
-    if (attacker.escapeThreat === b.id) this.escape(attacker);
-    const total = [...b.damageMap.values()].reduce((a, v) => a + v, 0);
-    // Método de restos mayores: repartir el 60% exacto, sin acuñar por redondeo.
-    const distribute = (amount, grant) => {
-      const parts = [...b.damageMap].map(([id, dmg]) => ({ id, exact: amount * dmg / total }));
-      let remainder = amount - parts.reduce((sum, p) => sum + Math.floor(p.exact), 0);
-      parts.sort((a, c) => (c.exact % 1) - (a.exact % 1));
-      for (const part of parts) grant(this.room.players.get(part.id), Math.floor(part.exact) + (remainder-- > 0 ? 1 : 0));
-    };
-    distribute(6000, (p, xp) => this.grantXP(p, xp));
-    distribute(3000, (p, coins) => this.award(p, coins, 'boss'));
-    this.scatter(b.x, b.y, 4000, 2000, 30);
-    this.emit('BOSS_DEFEATED', { id: b.id, username: attacker.name, x: b.x, y: b.y });
-    this.boss = null;
-  }
+  get boss() {return this.bossManager.boss;}
+  set boss(value) {this.bossManager.boss=value;}
+  get nextBoss() {return this.bossManager.nextSpawn;}
+  set nextBoss(value) {this.bossManager.nextSpawn=value;}
+  spawnBoss() {this.bossManager.spawnBoss();}
+  updateBoss(players,now) {this.bossManager.updateBoss(players,now);}
+  bossHit(damage,attacker) {this.bossManager.bossHit(damage,attacker);}
   snapshot(now = Date.now()) {
     return { g: [...this.gems.values()].map(g => [g.id, +g.x.toFixed(1), +g.y.toFixed(1), g.xp, g.coins]),
       c: [...this.cores.values()].map(c => [c.id, c.ownerId, Math.round(c.x), Math.round(c.y), c.xp, Math.max(0, c.expires - now)]),
@@ -252,6 +208,6 @@ class WorldEvents {
         this.boss.rotation, this.boss.state] : null,
       meteorIn: Math.max(0, this.nextMeteor - now) };
   }
-  destroy() { this.gems.clear(); this.cores.clear(); this.bounties.clear(); this.boss = null; }
+  destroy() { this.gems.clear(); this.cores.clear(); this.bounties.clear(); this.bossManager.destroy(); }
 }
 module.exports = { WorldEvents, TITLES, EFFECTS };

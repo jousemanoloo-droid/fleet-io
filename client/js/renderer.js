@@ -25,6 +25,7 @@
     scene._metricAt = now; scene._metricFrames = 0;
   }
   function installMetrics() {
+    if (document.getElementById('fleet-debug')) return;
     if (!new URLSearchParams(global.location.search).has('debug')) return;
     const node = document.createElement('div');
     node.id = 'fleet-debug';

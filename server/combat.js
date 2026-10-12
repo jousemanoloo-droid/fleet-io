@@ -19,11 +19,14 @@ function segmentHit(x, y, nextX, nextY, target, radius) {
 function updateCombat(room, tick) {
   const players = [...room.players.values()];
   const RPG = require('./rpg');
+  const Classes = require('./shipClasses');
   const now = Date.now();
+  const grid=room.combatGrid ||= new (require('./combatGrid').CombatGrid)();
+  grid.rebuild(players);
   const nearest = (player, origin, range) => {
     let enemy = null, distance = range;
     for (const other of players) {
-      if (other === player || !other.alive || other.invulnerable || now < other.spawnProtectionUntil) continue;
+      if (other === player || !other.alive || other.invulnerable || other.evolutionPending || now < other.cloakUntil || now < other.spawnProtectionUntil) continue;
       const d = Math.hypot(other.x - origin.x, other.y - origin.y);
       if (d < distance) { enemy = other; distance = d; }
     }
@@ -47,11 +50,12 @@ function updateCombat(room, tick) {
     const launch = require('../client/js/ballistics').launch(player, origin, enemy, origin.offset || 0, origin === player || origin.main ? player.radius : 8);
     if (origin.main) player.fireSeq = (player.fireSeq || 0) + 1;
     room.projectiles.set(id, { id, ownerId: player.id, ...launch, fireSeq: origin.main ? player.fireSeq : 0, sourceId: player.id, deathId: player.deathId,
-      damage: RPG.damage(player) * (heavy ? 1.35 : 1), ttl: 45, color: player.color,
+      damage: RPG.damage(player) * (heavy ? 1.35 : 1), ttl: 45, color: require('./cosmetics').laserColor(player,tick),
+      splash: origin.main ? Classes.definition(player.shipClass)?.splash || 0 : 0,
       piercing: player.supplyBuff === 'PIERCING_LASERS' && now < player.supplyUntil, hitIds: new Set() });
   };
   for (const player of players) {
-    if (!player.alive || player.levelUpPending || now < player.empUntil) continue;
+    if (!player.alive || player.levelUpPending || player.evolutionPending || now < player.cloakUntil || now < player.empUntil) continue;
     if (tick >= (player.nextFireTick || 0)) {
       const { enemy, distance } = nearest(player, player, 550);
       if (enemy) {
@@ -61,17 +65,18 @@ function updateCombat(room, tick) {
         const due = player.nextFireTick && player.nextFireTick > tick-delay ? player.nextFireTick : tick;
         player.nextFireTick = due + delay;
         const chassis = RPG.tier(player.level);
-        const offsets = chassis === 4 ? [-15, -5, 5, 15] : chassis >= 2 ? [-5, 5] : [0];
-        for (const y of offsets) {
-          fire(player, { x: player.x, y: player.y, offset: y, main: true }, enemy, distance, chassis >= 3);
+        const model={x:player.x,y:player.y,rotation:player.rotation,shipClass:player.shipClass,chassis:Classes.definition(player.shipClass)?.texture || chassis,powerTripleRemaining:Math.max(0,(player.powerTripleUntil || 0)-now)};
+        for (const shot of Classes.pattern(model)) {
+          fire(player, { ...Classes.muzzle(model,shot.gun),spread:shot.spread }, enemy, distance, !player.shipClass && chassis >= 3);
         }
       }
     }
-    if (player.level === 40 && tick >= (player.nextOrbitalFireTick || 0)) {
+    if (player.shipClass === 'carrier') player.carrierTarget = nearest(player, player, 450).enemy;
+    if (player.orbitalDrones.length && tick >= (player.nextOrbitalFireTick || 0)) {
       player.nextOrbitalFireTick = tick + (now < player.overdriveUntil ? 6 : 12);
       for (const drone of player.orbitalDrones) {
         const { enemy, distance } = nearest(player, drone, 400);
-        if (enemy) fire(player, drone, enemy, distance);
+        if (enemy) fire(player,{...Classes.muzzle({x:drone.x,y:drone.y,rotation:drone.state==='ATTACK_SWARM'?drone.rotation:Math.atan2(drone.y-player.y,drone.x-player.x),chassis:1},0,.28),main:false},enemy,distance);
       }
     }
   }
@@ -91,14 +96,13 @@ function updateCombat(room, tick) {
       for (const pod of room.competitive?.pods.values() || []) consider(pod,pod.radius,'pod');
       const boss=room.events?.boss;
       if (boss && boss.id !== shot.ownerId) consider(boss,boss.radius,'boss');
-      for (const p of players) {
-        if (p.id === shot.ownerId || !p.alive || p.invulnerable || now < p.spawnProtectionUntil || now < p.revengeUntil || now < p.revengeShieldUntil) continue;
-        consider(p,p.radius,'player');
-        for (const drone of p.drones) {
-          const t=shot.hitIds.has(drone.id) ? null : segmentHit(shot.x,shot.y,endX,endY,drone,8);
-          if (t !== null && t < fraction) { fraction=t; impact='drone'; hit={player:p,drone,id:drone.id}; }
-        }
-      }
+      grid.visit(shot.x,shot.y,endX,endY,(target,p,radius)=>{
+        if (p.id === shot.ownerId || !p.alive || p.invulnerable || p.evolutionPending || now < p.spawnProtectionUntil || now < p.revengeUntil || now < p.revengeShieldUntil) return;
+        if(target===p) {consider(p,radius,'player');return;}
+        if(!p.drones.includes(target) || shot.hitIds.has(target.id))return;
+        const t=segmentHit(shot.x,shot.y,endX,endY,target,radius);
+        if(t!==null && t<fraction){fraction=t;impact='drone';hit={player:p,drone:target,id:target.id};}
+      });
       if (!impact) { shot.x=endX; shot.y=endY; break; }
       shot.x += (endX-shot.x)*fraction; shot.y += (endY-shot.y)*fraction;
       if (impact === 'portal') {
@@ -124,6 +128,14 @@ function updateCombat(room, tick) {
         break;
       }
       const attacker=room.players.get(shot.ownerId);
+      if (shot.splash) {
+        for (const secondary of players) {
+          if (secondary === hit || secondary.id === shot.ownerId || !secondary.alive) continue;
+          const distance = Math.hypot(secondary.x-shot.x, secondary.y-shot.y);
+          if (distance < shot.splash) secondary.takeDamage(shot.damage*.6*(1-distance/shot.splash),attacker);
+        }
+        shot.piercing = false;
+      }
       if (impact === 'player') {
         const before=hit.hp, wasAlive=hit.alive;
         hit.takeDamage(shot.damage,attacker,shot.parryOwnerId === attacker?.id);
@@ -148,6 +160,8 @@ function updateCombat(room, tick) {
     shot.ttl--;
     if (consumed || shot.ttl <= 0 || shot.x < 0 || shot.y < 0 || shot.x > room.world.width || shot.y > room.world.height) room.projectiles.delete(id);
   }
+  // Do not retain a killed/disconnected ship between ticks via scratch buckets.
+  grid.clear();
 }
 
 function resolveObstacles(player, obstacles) {

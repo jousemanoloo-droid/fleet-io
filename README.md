@@ -835,3 +835,73 @@ Comprobaciones del nuevo sistema: `node --test tests/engagement.test.js`.
 - Defensive snapshot decoding rejects malformed packets and requests a new reliable baseline. CrazyGames lifecycle/ad hooks and EN/ES localization are preserved.
 
 Validation: `node --test tests/engine.test.js` exercises fast/fused muzzle geometry, shot metadata, AOI transitions, invalid packets, 400-slot recycling, immediate prediction and overlay zoom/resize cleanup. These changes bound object/particle work; stable 60 FPS on every low-end GPU cannot be guaranteed without measurements on those devices.
+
+## FASE 1: progresión y clases por partida
+
+La nueva implementación añade cinco upgrades tácticos, elección de clases en
+niveles 10/25/45 y nivel máximo 60. Balance, contratos de red, archivos afectados,
+limpieza de recursos y puntos de integración: [guía de Fase 1](docs/phase1-progression.md).
+La guía nueva sustituye las referencias anteriores al máximo de nivel 40 y al
+panel de cuatro atributos; conserva las mutaciones y la compatibilidad del SDK.
+
+## FASE 2: economía cosmética y retención
+
+Créditos Estelares, garaje modular, anuncios +500 créditos, estilos de láser,
+misiones UTC y racha semanal: [guía completa de Fase 2](docs/phase2-monetization.md).
+La guía sustituye la recompensa diaria anterior de 500 monedas cada 24 horas;
+se mantiene esa API antigua solo para compatibilidad, fuera de la nueva UI.
+
+## FASE 3: jefes, peligros y power-ups
+
+Gestores autoritativos por sala, deltas de orbes/zonas, limpieza y conexiones del
+bucle: [guía completa de Fase 3](docs/phase3-world-events.md). La aparición del jefe
+ahora es aleatoria cada 3–5 minutos y sustituye su calendario anterior de diez minutos.
+
+## FASE 4: social y competitividad
+
+Top 10 global/diario UTC, clanes con etiquetas sanitizadas y salas privadas con
+código FLEET-XXXXXX: [guía final de integración](docs/phase4-social.md). Los rankings
+son compactos, por proceso y en memoria; no atribuyen identidades de cuenta por nombre.
+
+## Auditoría y correcciones del 12/10/2026
+
+[Informe de hallazgos, pruebas y límites de producción](docs/audit-20261012.md).
+La economía de la UI ahora depende del wallet autoritativo `server/accounts.js`;
+las explicaciones anteriores sobre saldo local describen la versión histórica.
+Configurar `ECONOMY_SECRET` y `ECONOMY_FILE` en almacenamiento persistente antes
+de publicar. Simulación a 30 Hz y snapshots a 20 Hz. Las pruebas de estrés no
+constituyen una certificación de 60 FPS ni de anuncios reales del portal.
+
+## Extraction Space — Fase 1
+
+Inventario temporal por clase, materiales del mapa, pérdida por muerte/abandono y
+stash autoritativo persistente: [archivos, contratos y guía de integración](docs/extraction-space-phase1.md).
+La transferencia interna ahora se valida mediante las puertas y canalización de
+Fase 3, sin aceptar depósitos arbitrarios del cliente.
+
+## Extraction Space — Fase 2
+
+Cuatro rarezas, volumen por clase, migración de materiales antiguos, ventas de stash
+y HUD de carga: [módulos y guía de integración](docs/extraction-space-phase2.md).
+Esta guía sustituye los pesos, IDs y límites de carga publicados en Fase 1.
+La concesión de créditos ocurre al vender, sin doble recompensa al depositar.
+
+## Extraction Space — Fase 3
+
+Jump Gates temporales por sala, canalización autoritativa de cuatro segundos,
+cancelación por daño y evacuación con Stash persistente:
+[módulos, protocolo y guía de integración](docs/extraction-space-phase3.md).
+
+## Extraction Space — Fase 4
+
+Taller autoritativo con recetas de Stash, Void Stalker, escudo permanente y
+extracción reducida a tres segundos con propulsor cuántico:
+[estructura y guía final de integración](docs/extraction-space-phase4.md).
+El consumo y el desbloqueo se guardan juntos; fabricar durante una partida viva
+está bloqueado. Los módulos se activan al próximo spawn y no se acumulan.
+
+## Corrección de interfaz, armas y drones
+
+Menú en cuatro tarjetas, ranking plegable con pestañas, cañones sincronizados,
+enjambre guiado y contador autoritativo de toda la flota visible:
+[cambios por archivo y guía](docs/precision-ui-combat.md).
