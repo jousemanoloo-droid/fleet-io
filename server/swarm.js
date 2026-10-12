@@ -37,7 +37,7 @@ class DroneSwarm {
   }
   validTarget(target,player,now){return target && target!==player && target.alive && target.hp>0 && !target.invulnerable && !target.evolutionPending && !(now<target.cloakUntil) && !(now<target.spawnProtectionUntil);}
   acquireTarget(player,now){
-    let target=null,best=800*800;
+    let target=null,best=900*900;
     for(const other of this.room.players.values()){
       if(!this.validTarget(other,player,now))continue;const distance=(other.x-player.x)**2+(other.y-player.y)**2;
       if(distance<=best){target=other;best=distance;}

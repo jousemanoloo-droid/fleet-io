@@ -31,9 +31,10 @@
       for (const shot of shots) {
         const predictedKey = `local:${shot.deathId}:${shot.fireSeq}`;
         let slot = this.active.get(shot.id);
+        let newShot=!slot;
         if (!slot && shot.ownerId === this.C.myId && shot.sourceId === this.C.myId && shot.fireSeq > 0) {
           slot = this.active.get(predictedKey);
-          if (slot) { this.active.delete(predictedKey); this.scene._laserSprites.delete(predictedKey); slot.key = shot.id; this.active.set(shot.id, slot); this.scene._laserSprites.set(shot.id,slot.sprite); }
+          if (slot) {newShot=false; this.active.delete(predictedKey); this.scene._laserSprites.delete(predictedKey); slot.key = shot.id; this.active.set(shot.id, slot); this.scene._laserSprites.set(shot.id,slot.sprite); }
         }
         slot ||= this.acquire(shot.id); if (!slot) continue;
         const revision = shot.motionRevision || 0;
@@ -46,6 +47,11 @@
         slot.predicted = false; slot.revision = revision; slot.seen = now;
         slot.vx = (shot.vx || 0) * 30; slot.vy = (shot.vy || 0) * 30;
         slot.sprite.setTint(shot.c); slot.sprite.rotation = shot.rotation || 0;
+        if(newShot && shot.fireSeq>0){
+          const meta=this.C.playerStates.get(shot.sourceId),pos=this.C.renderState.get(shot.sourceId);
+          if(meta && pos){const model={...pos,shipClass:meta.shipClass,chassis:meta.chassis,powerTripleRemaining:meta.powerTripleRemaining};
+            const pattern=global.FleetShipClasses.pattern(model);this.scene.muzzleFlash?.(model,pattern[(shot.fireSeq-1)%pattern.length].gun,shot.c);}
+        }
         if (shot.ownerId === this.C.myId) this.sequence = Math.max(this.sequence, shot.fireSeq || 0);
       }
       for (const slot of this.active.values()) if (!slot.predicted && slot.seen !== now) this.release(slot);
@@ -79,6 +85,7 @@
         slot.predicted = true; slot.expires = now + 350; slot.seen = now; slot.revision = 0;
         const color = me.laserStyle === 'rainbow' ? [0xff3366,0xffcc33,0x00ff88,0x20dfff,0xcc66ff][this.sequence%5] : ({blue:0x20dfff,green:0x00ff88,red:0xff3366}[me.laserStyle] || me.color);
         slot.sprite.setTint(color); slot.sprite.rotation = launch.rotation;
+        this.scene.muzzleFlash?.(model,shot.gun,color);
       }
     }
     update(now, delta) {

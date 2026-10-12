@@ -1,7 +1,8 @@
 .panel.mode-panel{width:min(820px,94vw);padding:clamp(18px,3vw,28px)}
 .quick-access-panel{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:20px auto 12px;width:100%}
-.quick-access-card{position:relative;min-width:0;height:150px;background:linear-gradient(145deg,rgba(12,26,40,.82),rgba(5,12,25,.72));border:1px solid rgba(0,255,204,.2);border-radius:14px;backdrop-filter:blur(12px);transition:transform .2s,box-shadow .2s,border-color .2s}
-.quick-access-card:hover,.quick-access-card:focus-within{transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,255,204,.12);border-color:rgba(0,255,204,.55)}
+.quick-access-card{position:relative;min-width:0;height:150px;padding:16px;background:rgba(10,15,30,.75);border:1px solid rgba(0,255,204,.25);border-radius:12px;backdrop-filter:blur(10px);transition:all .25s cubic-bezier(.4,0,.2,1)}
+.quick-access-card:hover,.quick-access-card:focus-within{transform:translateY(-4px);box-shadow:0 8px 25px rgba(0,255,204,.3);border-color:rgba(0,255,204,.55)}
+.quick-access-icon svg{width:26px;height:26px;stroke:currentColor;stroke-width:1.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .quick-access-icon{position:absolute;top:14px;left:0;right:0;font-size:25px;color:#76ffe1;text-align:center;pointer-events:none;text-shadow:0 0 14px #00ffcc40}
 .quick-access-card .quick-access-button{position:absolute;inset:0;margin:0;width:100%;height:100%;padding:48px 10px 38px;border:0;border-radius:14px;background:transparent;box-shadow:none;color:#e0fff7;font:700 clamp(10px,1.1vw,12px)/1.35 system-ui;letter-spacing:.5px;overflow-wrap:anywhere;white-space:normal;text-align:center;cursor:pointer}
 .quick-access-status{position:absolute;bottom:13px;left:10px;right:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;color:#78a79f;font:11px system-ui;pointer-events:none}

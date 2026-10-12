@@ -78,7 +78,7 @@
       on('METEOR_WARN', data => this.notify(M('world.meteorWarn', { seconds: Math.ceil(data.inMs / 1000) }), 15000, 2));
       on('METEOR_START', () => this.notify(M('world.meteor'), 7000));
       on('BOSS_SPAWN', data => this.notify(M('world.bossLocation',{x:Math.round(data.x || 0),y:Math.round(data.y || 0)}), 8000));
-      on('BOSS_DEFEATED', data => { this.features.announce(M('world.bossDefeated', { name: data.username }), '#ffd56a', 30); this.ice.emitParticleAt(data.x, data.y, 40); });
+      on('BOSS_DEFEATED', data => { this.features.announce(M('world.bossDefeated', { name: data.username }), '#ffd56a', 30); this.ice.emitParticleAt(data.x, data.y, 40);if(this.scene._effectVisible(data.x,data.y,500))this.scene.screenShake?.(.01,260); });
       on('asteroid_destroyed', data => { if (this.scene._effectVisible(data.x, data.y)) this.gold.emitParticleAt(data.x, data.y, 20); });
       on('death_fx', data => this.killFX(data));
       on('welcome', () => this.reset());

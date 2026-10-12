@@ -34,6 +34,11 @@ test('swarm acquires nearest living ship regardless of player heading and follow
   const d=owner.tacticalDrones[0];manager.update(1/30,1033);assert.ok(d.vx<0);
   enemy.y=1750;manager.update(1/30,1066);assert.ok(d.vy<0);
 });
+test('updated swarm radius includes 900px exactly and excludes objects beyond it',()=>{
+  const {room,owner,manager}=swarm(),enemy=new Player('enemy','Enemy');enemy.y=owner.y;room.players.set(enemy.id,enemy);
+  enemy.x=owner.x+900;assert.equal(manager.acquireTarget(owner,1000),enemy);
+  enemy.x+=.001;assert.equal(manager.acquireTarget(owner,1000),null);
+});
 
 test('swarm ignores dead/invisible/protected ships, locks bosses and attributes boss hits server-side',()=>{
   const {room,owner,manager}=swarm(),dead=new Player('dead','Dead');dead.x=owner.x;dead.y=owner.y;dead.alive=false;room.players.set(dead.id,dead);
@@ -88,7 +93,17 @@ test('leaderboard tabs render each category instantly, expose active state, coll
   ui.toggle.onclick();assert.equal(ui.toggle.attributes['aria-expanded'],'false');assert.ok(root.classes.has('collapsed'));
   ui.toggle.onclick();assert.equal(ui.toggle.attributes['aria-expanded'],'true');assert.equal(ui.content.attributes.inert,undefined);
   ui.receive({v:1,revision:2,global:[],daily:[],clans:[]});ui.renderLeaderboard('daily');assert.equal(rows.children[0].textContent,'rank.emptyDaily');
+  ui.receive(null);assert.equal(rows.children[0].textContent,'rank.syncing');
   ui.destroy();assert.equal(bindings.size,0);assert.equal(handlers.size,0);assert.ok(root.querySelector('.lb-meta'));
+});
+test('screen shake rejects malformed values, respects reduced motion and never restarts an active effect',()=>{
+  const window={FleetI18n:{m:k=>k},matchMedia:()=>({matches:false})};
+  vm.runInNewContext(fs.readFileSync('client/js/game-scene.js','utf8'),{window,Phaser:{Scene:class{}}});
+  const scene=Object.create(window.FleetGame.GameScene.prototype),calls=[];scene.cameras={main:{shakeEffect:{isRunning:false},shake:(...args)=>calls.push(args)}};
+  scene.screenShake(1,10000);assert.deepEqual(calls[0],[350,.015,false]);
+  scene.cameras.main.shakeEffect.isRunning=true;scene.screenShake(.004,100);assert.equal(calls.length,1);
+  scene.cameras.main.shakeEffect.isRunning=false;window.matchMedia=()=>({matches:true});scene.screenShake(.008,160);assert.equal(calls.length,1);
+  for(const n of [Infinity,NaN])scene.screenShake(n,100);assert.equal(calls.length,1);
 });
 
 test('quick-access adopts the four original buttons without replacing their IDs or click handlers',()=>{

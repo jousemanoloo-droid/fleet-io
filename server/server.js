@@ -34,7 +34,7 @@ const CLIENT_ORIGINS = [...new Set([
 const app = express();
 app.disable('x-powered-by');
 app.get('/healthz', (_req, res) => res.status(200).json({ status: 'ok' }));
-app.get('/version',(_req,res)=>res.set('Cache-Control','no-store').json({build:'precision-20261012'}));
+app.get('/version',(_req,res)=>res.set('Cache-Control','no-store').json({build:'polish-20261012'}));
 // La URL del backend puede cambiar sin servir una configuración antigua en caché.
 app.get('/config.js', (_req, res) => {
   res.set('Cache-Control', 'no-store');

@@ -172,7 +172,8 @@
         ability_used: data => { if (this.inRoom(data)) this.effect(data); },
         player_hit: data => {
           if (!this.inRoom(data)) return;
-          this.scene.cameras.main.shake(50, 0.002);
+            const critical=data.damage>=20 || data.hp/data.maxHp<=.25;
+            if(this.scene.screenShake)this.scene.screenShake(critical?.008:.002,critical?160:50);
           const now = performance.now();
           if (now - (this.hitAt || 0) > 150) { this.hitAt = now; if ((data.hp ?? this.me?.hp) / (data.maxHp ?? this.me?.maxHp) <= 0.25) this.scene._cyber?.impact(); }
         },

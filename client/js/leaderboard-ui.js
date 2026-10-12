@@ -37,6 +37,12 @@
       this.render();
     }
     receive(data) {
+      try{
+        if(!data || !['global','daily','clans'].every(k=>Array.isArray(data[k]))){this.syncing=true;this.render();return;}
+        this.syncing=false;this.receiveValid(data);
+      }catch{this.syncing=true;this.clear();const label=document.createElement('small');I.render(label,M('rank.syncing'));this.rows?.append(label);}
+    }
+    receiveValid(data) {
       if(data?.v!==1 || !Number.isSafeInteger(data.revision) || data.revision<this.revision)return;
       for(const mode of ['global','daily','clans'])if(!Array.isArray(data[mode]) || data[mode].length>10)return;
       if(![...data.global,...data.daily].every(r=>Array.isArray(r) && typeof r[0]==='string' && typeof r[1]==='string' && (r[3]===null || typeof r[3]==='string' && /^[A-Z0-9]{2,8}$/.test(r[3])) && Number.isSafeInteger(r[4]) && r[4]>=0))return;
@@ -54,6 +60,7 @@
         button.classList.toggle?.('active',mode===this.mode);button.setAttribute?.('aria-selected',String(mode===this.mode));
       }
       this.updateToggle();const rows=this.data[this.mode] || [];
+      if(this.syncing){const label=document.createElement('small');I.render(label,M('rank.syncing'));this.rows.append(label);}
       for(let i=0;i<rows.length;i++) {
         const r=rows[i],node=document.createElement('div');node.className='rank-row';
         const name=document.createElement('strong'),description=document.createElement('small'),score=document.createElement('span');
@@ -65,7 +72,7 @@
         }
         node.append(name,score,description);this.rows.append(node);
       }
-      if(!rows.length) {const label=document.createElement('small');I.render(label,M(this.revision<0?'rank.loading':this.mode==='daily'?'rank.emptyDaily':'rank.empty'));this.rows.append(label);}
+      if(!rows.length && !this.syncing) {const label=document.createElement('small');I.render(label,M(this.revision<0?'rank.loading':this.mode==='daily'?'rank.emptyDaily':'rank.empty'));this.rows.append(label);}
     }
     destroy() {
       if(!this.rows)return;

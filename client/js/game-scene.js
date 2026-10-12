@@ -380,6 +380,9 @@
         scale: { start: 0.9, end: 0 }, alpha: { start: 1, end: 0 },
         blendMode: Phaser.BlendModes.ADD, maxParticles: 256, maxAliveParticles: 256,
       }).setDepth(10);
+      this._muzzleFlash=this.add.particles(0,0,key,{emitting:false,lifespan:85,speed:{min:4,max:22},scale:{start:.5,end:0},
+        alpha:{start:1,end:0},blendMode:Phaser.BlendModes.ADD,maxParticles:64,maxAliveParticles:64}).setDepth(6);
+      this.events.once('shutdown',()=>this._muzzleFlash.destroy());
       this._royalAura = this.add.particles(0, 0, key, {
         emitting: false, lifespan: 650, speed: { min: 8, max: 22 }, tint: 0xffd260,
         scale: { start: 0.35, end: 0 }, alpha: { start: 0.5, end: 0 },
@@ -408,11 +411,18 @@
     _explodeAt(x, y, isShip = false) {
       if (!this._effectVisible(x, y)) return;
       this._explosions.emitParticleAt(x, y, isShip ? 32 : 10);
-      // No reiniciar una sacudida activa por cada dron de una misma explosión.
-      const camera = this.cameras.main;
-      if (!camera.shakeEffect.isRunning) {
-        camera.shake(isShip ? 200 : 50, isShip ? 0.008 : 0.002, false);
-      }
+      this.screenShake(isShip?.008:.002,isShip?200:50);
+    }
+
+    screenShake(intensity=.004,duration=100) {
+      if(!Number.isFinite(intensity) || !Number.isFinite(duration) || window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return;
+      const camera=this.cameras.main;if(!camera.shakeEffect?.isRunning)camera.shake(Math.max(30,Math.min(350,duration)),Math.max(0,Math.min(.015,intensity)),false);
+    }
+
+    muzzleFlash(model,gun=0,color=0x88ffff,scale) {
+      const point=window.FleetShipClasses.muzzle(model,gun,scale);
+      if(!this._effectVisible(point.x,point.y,30))return;
+      this._muzzleFlash?.setParticleTint(color).emitParticleAt(point.x,point.y,2);
     }
 
     _emitShipTrail(emitter, id, x, y, count, now) {
@@ -1391,13 +1401,14 @@
     _finishExtraction() {
       // Server has already committed the stash and evacuated this ship.
       C.joined=false;C.dead=false;C.menuOpen=true;C.myId=null;C.room=null;C.respawnBusy=false;C._joinPending=false;
+      C._drones=0;window.FleetHUDUI?.updateDroneCount(0);this._leaderboardUI?.resetRoom();
       // Change state before closing overlays: their lifecycle hooks must not restart gameplay.
       window.AdManager?.gameplayStop?.();this._features?.settle();this._classUI?.close();
       if(this._features?.blocking)this._features.close();
       C.playerStates.clear();C.renderState.clear();C.scraps.clear();C._prevStates?.clear();
       this._prediction=null;this._decoder.reset();this._projectileStates.clear();this._bullets?.reset();this._obstacles=[];
       for(const id of this._playerSprites.keys())this._removePlayer(id);
-      this._thrust?.killAll();this._stashUI?.reset();this._powerupUI?.reset();
+      this._thrust?.killAll();this._muzzleFlash?.killAll();this._stashUI?.reset();this._powerupUI?.reset();
       this._competitive?.reset?.();this._hazards?.reset?.();this._engagement?.reset?.();
       this._retention?.reset();
       updateRoomHUD(null);hideMutations();
@@ -1535,7 +1546,8 @@
     const hp = document.getElementById('hud-hp');
     const level = document.getElementById('hud-level');
     const bar = document.getElementById('hud-hp-bar');
-    if (hp && hp.textContent !== `${C._hp}/${C._maxHp}`) I.render(hp, `${C._hp}/${C._maxHp}`);
+    const hpLabel=`${Math.ceil(C._hp)}/${Math.ceil(C._maxHp)}`;
+    if (hp && hp.textContent !== hpLabel) I.render(hp,hpLabel);
     if (level && level.textContent !== String(C._level)) I.render(level, String(C._level));
     const progressNode = document.getElementById('hud-level-progress');
     if (progressNode && window.FleetProgression) {

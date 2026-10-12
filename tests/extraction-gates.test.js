@@ -115,10 +115,10 @@ test('extraction transitions to menu before overlay hooks, so CrazyGames never r
   const window={FleetI18n:require('../client/js/i18n')(require('../client/js/translations')),AdManager:{gameplayStart:()=>starts++,gameplayStop:()=>stops++}};
   const source=fs.readFileSync('client/js/game-scene.js','utf8').replace('window.FleetGame = { boot: bootPhaser','window.FleetGame = { C, boot: bootPhaser');
   vm.runInNewContext(source,{window,document,Phaser:{Scene:class{}},performance:{now:()=>0}});
-  const {C,GameScene}=window.FleetGame;C.joined=C.connected=true;C.menuOpen=false;
+  const {C,GameScene}=window.FleetGame;C.joined=C.connected=true;C.menuOpen=false;C._drones=6;
   const scene=Object.create(GameScene.prototype);scene._projectileStates=new Map();scene._playerSprites=new Map();scene._decoder={reset(){}};
   scene._classUI={close:()=>window.FleetGame.trackGameplay()};scene._features={blocking:true,settle(){},close:()=>window.FleetGame.trackGameplay()};
-  scene._finishExtraction();assert.equal(starts,0);assert.ok(stops>0);assert.equal(C.joined,false);assert.equal(C.menuOpen,true);
+  scene._finishExtraction();assert.equal(starts,0);assert.ok(stops>0);assert.equal(C.joined,false);assert.equal(C.menuOpen,true);assert.equal(C._drones,0);
 });
 
 test('client gate rendering uses a bounded pool, rejects stale/forged packets and destroys its listeners',()=>{
